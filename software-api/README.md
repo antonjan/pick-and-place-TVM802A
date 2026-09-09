@@ -100,25 +100,20 @@ StopAll  1  Immediately stops all axis stepper motors
 Connect OpenPnP or any raw TCP terminal client to Port 2222.
 Supported Commands
 
-* G90  Set Absolute Positioning Mode  All subsequent X, Y, Z, A, B values are treated as absolute target positions.
-* G91  Set Relative Positioning Mode  All subsequent movement values are calculated relative to current position.
-* G0 / G1  Linear Move  Accepts X, Y, Z, A (or C), and B coordinates.
-• Z controls seesaw Z (+ lowers N1).
-• A or C controls Nozzle 1 angle.
-• B controls Nozzle 2 angle.
-* Example: G1 X120.5 Y45.0 Z2.0 A90
- * G28  Home Axis / Machine  Safe homing sequence.
-• G28 (Homes both axes)
-• G28 X (Homes X axis)
-• G28 Y (Homes Y axis) 
- M114  Get Current Position  Returns current coordinates in standard reprap format:
-X:<val> Y:<val> Z:<val> C:<val> A:<val> B:<val> ok 
- Unsupported Codes  Catch-all Pass  Setup codes such as G20, G21, M82, or feedrate specs (F...) are safely trapped and auto-acknowledged with an ok response. 
-⚙️ Hardware Calibration Settings
-Resolution scaling constants configured in TVM-manager.js:
+ G90  Set Absolute Positioning Mode  All subsequent X, Y, Z, A, B values are treated as absolute target positions.
+ 
+ G91  Set Relative Positioning Mode  All subsequent movement values are calculated relative to current position.
+ 
+ G0 / G1  Linear Move  Accepts X, Y, Z, A (or C), and B coordinates.
+ - Z controls seesaw Z (+ lowers N1).
+ - A or C controls Nozzle 1 angle.
+ - B controls Nozzle 2 angle.
+ Example: G1 X120.5 Y45.0 Z2.0 A90
 
- X  32808 steps/mm  Linear Travel 
- Y  32808 steps/mm  Linear Travel 
- Nozzle (Z)  32808 steps/mm  Seesaw mechanism (+Z = N1 down, -Z = N2 down) 
- A1  4444.44 steps/deg  Nozzle 1 rotation 
- A2  4444.44 steps/deg  Nozzle 2 rotation 
+G28  Home Axis / Machine  Safe homing sequence.
+- G28 (Homes both axes)
+- G28 X (Homes X axis)
+- G28 Y (Homes Y axis) 
+
+M114  Get Current Position  Returns current coordinates in standard reprap format:
+X:<val> Y:<val> Z:<val> C:<val> A:<val> B:<val> ok 
