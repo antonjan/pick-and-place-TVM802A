@@ -21,17 +21,18 @@ Usage
 -----
 
 # 🚀 Features
- * HTTP REST API: Quick controls for toggling outputs (pumps, vacuums, LEDs, solenoids), querying full machine state, manual jogging, and coordinate moves.
- * OpenPnP Integration: Emulates a standard TCP G-Code controller supporting G0/G1, G28, G90/G91, and M114.
- * Seesaw Z Axis Logic: Handles automatic calculation for the shared Z motor controlling Nozzle 1 (positive values) and Nozzle 2 (negative values).
- * Safe Homing Sequences: Features auto-retraction for nozzles prior to axis homing and double-touch limit switch registration.
-⚙️ Configuration & Ports
-- HTTP Web Server: 3000 REST API and Web Interface 
-- TCP G-Code Socket:2222 TCP Connection for OpenPnP 
+* **HTTP REST API**: Quick controls for toggling outputs (pumps, vacuums, LEDs, solenoids), querying full machine state, manual jogging, and coordinate moves.
+* **OpenPnP Integration**: Emulates a standard TCP G-Code controller supporting G0/G1, G28, G90/G91, and M114.
+* **Seesaw Z Axis Logic**: Handles automatic calculation for the shared Z motor controlling Nozzle 1 (positive values) and Nozzle 2 (negative values).
+* **Safe Homing Sequences**: Features auto-retraction for nozzles prior to axis homing and double-touch limit switch registration.
+
+## ⚙️ Configuration & Ports
+- HTTP Web Server Port: 3000
+- TCP G-Code Socket Port 2222
 
 ## 🌐 HTTP API Reference
 All HTTP endpoints are accessible via GET requests on port 3000.
-1. Hardware State Query
+### 1. Hardware State Query
  * Endpoint: GET /api/status
  * Description: Returns full machine state, input sensor flags, current speed modes, raw encoder ticks, and converted millimeter/degree positions.
  * Example Response:
@@ -46,23 +47,23 @@ All HTTP endpoints are accessible via GET requests on port 3000.
   "Limit": { "Top": 0, "Bottom": 0, "Left": 0, "Right": 0 }
 }
 
-2. Output Controls
+### 2. Output Controls
  * Endpoint: GET /api/set?<parameter>=<value>
  * Description: Toggle binary hardware outputs (1 = ON, 0 = OFF). Only one parameter per request.
 
-- pump  1 / 0  Vacuum Pump power 
-- vacuum1  1 / 0  Nozzle 1 vacuum solenoid 
-- vacuum2  1 / 0  Nozzle 2 vacuum solenoid 
-- blowing1  1 / 0  Nozzle 1 puff/blow solenoid 
-- blowing2  1 / 0  Nozzle 2 puff/blow solenoid 
-- leds  1 / 0  Machine lighting / LEDs 
-- buzzer  1 / 0  Hardware buzzer sound 
-- prick  1 / 0  Component pin/needle driver solenoid 
+- **pump**  1 / 0  Vacuum Pump power 
+- **vacuum1**  1 / 0  Nozzle 1 vacuum solenoid 
+- **vacuum2**  1 / 0  Nozzle 2 vacuum solenoid 
+- **blowing1**  1 / 0  Nozzle 1 puff/blow solenoid 
+- **blowing2**  1 / 0  Nozzle 2 puff/blow solenoid 
+- **leds**  1 / 0  Machine lighting / LEDs 
+- **buzzer**  1 / 0  Hardware buzzer sound 
+- **prick**  1 / 0  Component pin/needle driver solenoid 
  * Example Requests:
    * http://localhost:3000/api/set?pump=1
    * http://localhost:3000/api/set?vacuum1=1
    * http://localhost:3000/api/set?leds=0
-3. Motion & Jog Controls
+### 3. Motion & Jog Controls
  * Endpoint: GET /api/move?<parameter>=<value>
  * Description: Issue absolute moves or incremental axis relative steps (jogging).
 Absolute Moves
@@ -90,7 +91,7 @@ StopAll  1  Immediately stops all axis stepper motors
    * http://localhost:3000/api/move?StepX=10 (jog X right by 10mm)
    * http://localhost:3000/api/move?StepY=-5 (jog Y back by 5mm)
    * http://localhost:3000/api/move?StopAll=1 (E-STOP)
-4. Homing API
+### 4. Homing API
  * Endpoint: GET /api/home or GET /api/home?axis=<X|Y>
  * Description: Initiates automated safe homing. Automatically retracts both nozzles to 0\,\text{mm} before executing homing.
  * Example Requests:
