@@ -29,7 +29,7 @@ Usage
 - HTTP Web Server: 3000 REST API and Web Interface 
 - TCP G-Code Socket:2222 TCP Connection for OpenPnP 
 
-🌐 HTTP API Reference
+## 🌐 HTTP API Reference
 All HTTP endpoints are accessible via GET requests on port 3000.
 1. Hardware State Query
  * Endpoint: GET /api/status
@@ -96,7 +96,7 @@ StopAll  1  Immediately stops all axis stepper motors
  * Example Requests:
    * http://localhost:3000/api/home (Homes Y, then X)
    * http://localhost:3000/api/home?axis=X (Homes X only)
-#📡 TCP G-Code Controls (OpenPnP)
+## 📡 TCP G-Code Controls (OpenPnP)
 Connect OpenPnP or any raw TCP terminal client to Port 2222.
 Supported Commands
 
