@@ -20,7 +20,7 @@ Running
 Usage
 -----
 
-🚀 Features
+# 🚀 Features
  * HTTP REST API: Quick controls for toggling outputs (pumps, vacuums, LEDs, solenoids), querying full machine state, manual jogging, and coordinate moves.
  * OpenPnP Integration: Emulates a standard TCP G-Code controller supporting G0/G1, G28, G90/G91, and M114.
  * Seesaw Z Axis Logic: Handles automatic calculation for the shared Z motor controlling Nozzle 1 (positive values) and Nozzle 2 (negative values).
@@ -96,7 +96,7 @@ StopAll  1  Immediately stops all axis stepper motors
  * Example Requests:
    * http://localhost:3000/api/home (Homes Y, then X)
    * http://localhost:3000/api/home?axis=X (Homes X only)
-📡 TCP G-Code Controls (OpenPnP)
+#📡 TCP G-Code Controls (OpenPnP)
 Connect OpenPnP or any raw TCP terminal client to Port 2222.
 Supported Commands
 
