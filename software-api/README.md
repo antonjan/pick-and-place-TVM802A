@@ -68,12 +68,12 @@ All HTTP endpoints are accessible via GET requests on port 3000.
 Absolute Moves
 Pass multiple axes in a single request (units in mm for X/Y/Z, degrees for A1/A2):
 
-X  mm  X-Axis Target
-Y  mm  Y-Axis Target 
-Z / Z1 / Nozzle  mm  Nozzle 1 Downward Travel (+mm) 
-Z2  mm  Nozzle 2 Downward Travel (-mm) 
-A / A1  Degrees  Nozzle 1 Rotation (0^{\circ} - 360^{\circ}) 
-B / A2  Degrees  Nozzle 2 Rotation (0^{\circ} - 360^{\circ}) 
+- X  mm  X-Axis Target
+- Y  mm  Y-Axis Target 
+- Z / Z1 / Nozzle  mm  Nozzle 1 Downward Travel (+mm) 
+- Z2  mm  Nozzle 2 Downward Travel (-mm) 
+- A / A1  Degrees  Nozzle 1 Rotation (0^{\circ} - 360^{\circ}) 
+- B / A2  Degrees  Nozzle 2 Rotation (0^{\circ} - 360^{\circ}) 
 
  * Example Request:
    * http://localhost:3000/api/move?X=150&Y=200&Z=5&A1=90
@@ -100,14 +100,14 @@ StopAll  1  Immediately stops all axis stepper motors
 Connect OpenPnP or any raw TCP terminal client to Port 2222.
 Supported Commands
 
-G90  Set Absolute Positioning Mode  All subsequent X, Y, Z, A, B values are treated as absolute target positions.
-G91  Set Relative Positioning Mode  All subsequent movement values are calculated relative to current position.
-G0 / G1  Linear Move  Accepts X, Y, Z, A (or C), and B coordinates.
+* G90  Set Absolute Positioning Mode  All subsequent X, Y, Z, A, B values are treated as absolute target positions.
+* G91  Set Relative Positioning Mode  All subsequent movement values are calculated relative to current position.
+* G0 / G1  Linear Move  Accepts X, Y, Z, A (or C), and B coordinates.
 • Z controls seesaw Z (+ lowers N1).
 • A or C controls Nozzle 1 angle.
 • B controls Nozzle 2 angle.
-Example: G1 X120.5 Y45.0 Z2.0 A90
- G28  Home Axis / Machine  Safe homing sequence.
+* Example: G1 X120.5 Y45.0 Z2.0 A90
+ * G28  Home Axis / Machine  Safe homing sequence.
 • G28 (Homes both axes)
 • G28 X (Homes X axis)
 • G28 Y (Homes Y axis) 
