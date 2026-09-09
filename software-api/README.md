@@ -26,11 +26,9 @@ Usage
  * Seesaw Z Axis Logic: Handles automatic calculation for the shared Z motor controlling Nozzle 1 (positive values) and Nozzle 2 (negative values).
  * Safe Homing Sequences: Features auto-retraction for nozzles prior to axis homing and double-touch limit switch registration.
 ⚙️ Configuration & Ports
-| Service | Port | Description |
-|---|---|---|
-| HTTP Web Server | 3000 | REST API and Web Interface |
-| TCP G-Code Socket | 2222 | TCP Connection for OpenPnP |
-| TVM Hardware | 701 | Factory default TVM802A IP (192.168.0.8) |
+- HTTP Web Server: 3000 REST API and Web Interface 
+- TCP G-Code Socket:2222 TCP Connection for OpenPnP 
+
 🌐 HTTP API Reference
 All HTTP endpoints are accessible via GET requests on port 3000.
 1. Hardware State Query
@@ -51,16 +49,15 @@ All HTTP endpoints are accessible via GET requests on port 3000.
 2. Output Controls
  * Endpoint: GET /api/set?<parameter>=<value>
  * Description: Toggle binary hardware outputs (1 = ON, 0 = OFF). Only one parameter per request.
-| Parameter | Values | Description |
-|---|---|---|
-| pump | 1 / 0 | Vacuum Pump power |
-| vacuum1 | 1 / 0 | Nozzle 1 vacuum solenoid |
-| vacuum2 | 1 / 0 | Nozzle 2 vacuum solenoid |
-| blowing1 | 1 / 0 | Nozzle 1 puff/blow solenoid |
-| blowing2 | 1 / 0 | Nozzle 2 puff/blow solenoid |
-| leds | 1 / 0 | Machine lighting / LEDs |
-| buzzer | 1 / 0 | Hardware buzzer sound |
-| prick | 1 / 0 | Component pin/needle driver solenoid |
+
+- pump  1 / 0  Vacuum Pump power 
+- vacuum1  1 / 0  Nozzle 1 vacuum solenoid 
+- vacuum2  1 / 0  Nozzle 2 vacuum solenoid 
+- blowing1  1 / 0  Nozzle 1 puff/blow solenoid 
+- blowing2  1 / 0  Nozzle 2 puff/blow solenoid 
+- leds  1 / 0  Machine lighting / LEDs 
+- buzzer  1 / 0  Hardware buzzer sound 
+- prick  1 / 0  Component pin/needle driver solenoid 
  * Example Requests:
    * http://localhost:3000/api/set?pump=1
    * http://localhost:3000/api/set?vacuum1=1
@@ -70,27 +67,25 @@ All HTTP endpoints are accessible via GET requests on port 3000.
  * Description: Issue absolute moves or incremental axis relative steps (jogging).
 Absolute Moves
 Pass multiple axes in a single request (units in mm for X/Y/Z, degrees for A1/A2):
-| Parameter | Unit | Description |
-|---|---|---|
-| X | mm | X-Axis Target |
-| Y | mm | Y-Axis Target |
-| Z / Z1 / Nozzle | mm | Nozzle 1 Downward Travel (+mm) |
-| Z2 | mm | Nozzle 2 Downward Travel (-mm) |
-| A / A1 | Degrees | Nozzle 1 Rotation (0^{\circ} - 360^{\circ}) |
-| B / A2 | Degrees | Nozzle 2 Rotation (0^{\circ} - 360^{\circ}) |
+
+X  mm  X-Axis Target
+Y  mm  Y-Axis Target 
+Z / Z1 / Nozzle  mm  Nozzle 1 Downward Travel (+mm) 
+Z2  mm  Nozzle 2 Downward Travel (-mm) 
+A / A1  Degrees  Nozzle 1 Rotation (0^{\circ} - 360^{\circ}) 
+B / A2  Degrees  Nozzle 2 Rotation (0^{\circ} - 360^{\circ}) 
+
  * Example Request:
    * http://localhost:3000/api/move?X=150&Y=200&Z=5&A1=90
 Incremental Jogging & Emergency Stop
 Pass a single jog parameter per request:
-| Parameter | Unit | Description |
-|---|---|---|
-| StepX | mm | Relative X movement (+ or -) |
-| StepY | mm | Relative Y movement (+ or -) |
-| StepZ / StepZ1 / StepNozzle | mm | Relative Nozzle 1 move (+ steps down) |
-| StepZ2 | mm | Relative Nozzle 2 move (+ steps down) |
-| StepA / StepA1 | Degrees | Relative Nozzle 1 rotation |
-| StepA2 | Degrees | Relative Nozzle 2 rotation |
-| StopAll | 1 | Immediately stops all axis stepper motors |
+StepX  mm  Relative X movement (+ or -) 
+StepY  mm  Relative Y movement (+ or -) 
+StepZ / StepZ1 / StepNozzle  mm  Relative Nozzle 1 move (+ steps down) 
+StepZ2  mm  Relative Nozzle 2 move (+ steps down) 
+StepA / StepA1  Degrees  Relative Nozzle 1 rotation 
+StepA2  Degrees  Relative Nozzle 2 rotation 
+StopAll  1  Immediately stops all axis stepper motors
  * Example Requests:
    * http://localhost:3000/api/move?StepX=10 (jog X right by 10mm)
    * http://localhost:3000/api/move?StepY=-5 (jog Y back by 5mm)
@@ -104,28 +99,26 @@ Pass a single jog parameter per request:
 📡 TCP G-Code Controls (OpenPnP)
 Connect OpenPnP or any raw TCP terminal client to Port 2222.
 Supported Commands
-| G-Code Command | Description | Syntax / Details |
-|---|---|---|
-| G90 | Set Absolute Positioning Mode | All subsequent X, Y, Z, A, B values are treated as absolute target positions. |
-| G91 | Set Relative Positioning Mode | All subsequent movement values are calculated relative to current position. |
-| G0 / G1 | Linear Move | Accepts X, Y, Z, A (or C), and B coordinates.
+
+G90  Set Absolute Positioning Mode  All subsequent X, Y, Z, A, B values are treated as absolute target positions.
+G91  Set Relative Positioning Mode  All subsequent movement values are calculated relative to current position.
+G0 / G1  Linear Move  Accepts X, Y, Z, A (or C), and B coordinates.
 • Z controls seesaw Z (+ lowers N1).
 • A or C controls Nozzle 1 angle.
 • B controls Nozzle 2 angle.
-Example: G1 X120.5 Y45.0 Z2.0 A90 |
-| G28 | Home Axis / Machine | Safe homing sequence.
+Example: G1 X120.5 Y45.0 Z2.0 A90
+ G28  Home Axis / Machine  Safe homing sequence.
 • G28 (Homes both axes)
 • G28 X (Homes X axis)
-• G28 Y (Homes Y axis) |
-| M114 | Get Current Position | Returns current coordinates in standard reprap format:
-X:<val> Y:<val> Z:<val> C:<val> A:<val> B:<val> ok |
-| Unsupported Codes | Catch-all Pass | Setup codes such as G20, G21, M82, or feedrate specs (F...) are safely trapped and auto-acknowledged with an ok response. |
+• G28 Y (Homes Y axis) 
+ M114  Get Current Position  Returns current coordinates in standard reprap format:
+X:<val> Y:<val> Z:<val> C:<val> A:<val> B:<val> ok 
+ Unsupported Codes  Catch-all Pass  Setup codes such as G20, G21, M82, or feedrate specs (F...) are safely trapped and auto-acknowledged with an ok response. 
 ⚙️ Hardware Calibration Settings
 Resolution scaling constants configured in TVM-manager.js:
-| Axis | Steps / Unit | Notes |
-|---|---|---|
-| X | 32808 steps/mm | Linear Travel |
-| Y | 32808 steps/mm | Linear Travel |
-| Nozzle (Z) | 32808 steps/mm | Seesaw mechanism (+Z = N1 down, -Z = N2 down) |
-| A1 | 4444.44 steps/deg | Nozzle 1 rotation |
-| A2 | 4444.44 steps/deg | Nozzle 2 rotation |
+
+ X  32808 steps/mm  Linear Travel 
+ Y  32808 steps/mm  Linear Travel 
+ Nozzle (Z)  32808 steps/mm  Seesaw mechanism (+Z = N1 down, -Z = N2 down) 
+ A1  4444.44 steps/deg  Nozzle 1 rotation 
+ A2  4444.44 steps/deg  Nozzle 2 rotation 
