@@ -15,7 +15,7 @@ Download the code and run the following command to install the needed modules
 Running
 -------
 
-`node TVM-API-Server.js`
+`node TVM-API-Server-V1.js`
 
 Usage
 -----
