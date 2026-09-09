@@ -72,8 +72,8 @@ Pass multiple axes in a single request (units in mm for X/Y/Z, degrees for A1/A2
 - Y  mm  Y-Axis Target 
 - Z / Z1 / Nozzle  mm  Nozzle 1 Downward Travel (+mm) 
 - Z2  mm  Nozzle 2 Downward Travel (-mm) 
-- A / A1  Degrees  Nozzle 1 Rotation (0^{\circ} - 360^{\circ}) 
-- B / A2  Degrees  Nozzle 2 Rotation (0^{\circ} - 360^{\circ}) 
+- A / A1  Degrees  Nozzle 1 Rotation
+- B / A2  Degrees  Nozzle 2 Rotation
 
  * Example Request:
    * http://localhost:3000/api/move?X=150&Y=200&Z=5&A1=90
