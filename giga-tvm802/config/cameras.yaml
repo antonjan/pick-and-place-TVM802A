@@ -1,0 +1,45 @@
+# Cameras for the vision system. Edited by hand. The app uses the names "down" and "up".
+#
+# Fields (all optional except device):
+#   device    V4L2 device path. Use the stable /dev/v4l/by-id/... path, not /dev/videoN,
+#             because the numbers change when devices are re-plugged.
+#   width     Frame width in pixels. Default 960.
+#   height    Frame height in pixels. Default 720.
+#   fourcc    Pixel format requested from the driver, "MJPG" or "YUYV". Default MJPG.
+#   fps       Frame rate requested from the driver. Default 30.
+#   rotate    Clockwise rotation applied to every frame: 0, 90, 180 or 270. Default 0.
+#   flip_x    true mirrors the image left/right. Default false.
+#   flip_y    true mirrors the image top/bottom. Default false.
+#   controls  v4l2 controls set with v4l2-ctl before the camera opens, for example
+#             exposure_auto: 1. Empty means driver defaults.
+#
+# Roles: "down" is the camera on the head that looks at the bed. "up" is the fixed
+# camera that looks at the nozzle tips. To swap the roles, swap the two device lines
+# below (the camera that is currently "down" becomes "up" and vice versa).
+
+# Roles confirmed by the user 2026-11-12. 640x480: the up camera streams at 30 fps
+# there (vs ~4-7 fps at 960x720) and it is lighter on the shared USB 2.0 bus.
+down:
+  # Head camera. FAULTY as of 2026-11-12: hangs when opened, even alone on the bus.
+  device: /dev/v4l/by-id/usb-Microsoft_Video_Camera_000F330056215848-video-index0
+  width: 640
+  height: 480
+  fourcc: MJPG
+  fps: 30
+  # 270 (= 90 deg anticlockwise): makes X+ pan right and Y+ pan up in the view.
+  # Observed raw: X+ panned down, Y+ panned right (2026-11-12).
+  rotate: 270
+  flip_x: false
+  flip_y: false
+  controls: {}
+
+up:
+  device: /dev/v4l/by-id/usb-Microsoft_Video_Camera_000F330011585848-video-index0
+  width: 640
+  height: 480
+  fourcc: MJPG
+  fps: 30
+  rotate: 0
+  flip_x: false
+  flip_y: false
+  controls: {}

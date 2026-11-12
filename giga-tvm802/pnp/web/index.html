@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TVM802 Control</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<header>
+  <h1>TVM802</h1>
+  <span id="pill-conn" class="pill bad">offline</span>
+  <span id="pill-homed" class="pill warn">not homed</span>
+  <span id="pill-busy" class="pill idle">idle</span>
+  <span id="pill-speed" class="pill idle">speed ?</span>
+  <nav>
+    <button class="tab active" data-tab="machine">Machine</button>
+    <button class="tab" data-tab="setup">Setup</button>
+    <button class="tab" data-tab="feeders">Feeders</button>
+    <button class="tab" disabled title="Phase 4+">Job</button>
+  </nav>
+  <div class="spacer"></div>
+  <button id="btn-reset" class="ghost" hidden>Reset E-stop</button>
+  <button id="btn-estop" class="estop" title="Esc">E-STOP</button>
+</header>
+
+<div id="error" class="error" hidden></div>
+
+<main id="tab-machine" data-tab="machine">
+  <section class="card dro">
+    <h2>Position</h2>
+    <div class="dro-grid">
+      <label>X</label><output id="pos-x">–</output><span>mm</span>
+      <label>Y</label><output id="pos-y">–</output><span>mm</span>
+      <label>Z</label><output id="pos-z">–</output><span id="z-hint">mm</span>
+      <label>A1</label><output id="pos-a1">–</output><span>°</span>
+      <label>A2</label><output id="pos-a2">–</output><span>°</span>
+    </div>
+    <h3>Sensors</h3>
+    <div class="leds">
+      <span class="led" id="lim-left">Left</span>
+      <span class="led" id="lim-right">Right</span>
+      <span class="led" id="lim-top">Top</span>
+      <span class="led" id="lim-bottom">Bottom</span>
+      <span class="led ok" id="vac-1">Vac N1</span>
+      <span class="led ok" id="vac-2">Vac N2</span>
+    </div>
+    <h3>Go to</h3>
+    <form id="goto" class="goto">
+      <input name="x" placeholder="X" inputmode="decimal">
+      <input name="y" placeholder="Y" inputmode="decimal">
+      <button>Move</button>
+    </form>
+    <button id="btn-home" class="primary wide">Home (Y then X)</button>
+  </section>
+
+  <section class="card jog">
+    <h2>Jog</h2>
+    <div class="steps" id="xy-steps">
+      <span>Step mm</span>
+      <button data-step="0.01">0.01</button><button data-step="0.1">0.1</button>
+      <button data-step="1" class="sel">1</button><button data-step="10">10</button>
+      <button data-step="50">50</button>
+    </div>
+    <div class="pad">
+      <div></div><button data-jog="y" data-dir="1" title="↑">Y+</button><div></div>
+      <button data-jog="x" data-dir="-1" title="←">X−</button>
+      <button id="btn-up" class="center" title="Raise both nozzles">Z↑</button>
+      <button data-jog="x" data-dir="1" title="→">X+</button>
+      <div></div><button data-jog="y" data-dir="-1" title="↓">Y−</button><div></div>
+    </div>
+
+    <h3>Nozzles</h3>
+    <div class="steps" id="z-steps">
+      <span>Z step mm</span>
+      <button data-step="0.1">0.1</button><button data-step="0.5" class="sel">0.5</button>
+      <button data-step="1">1</button><button data-step="2">2</button>
+    </div>
+    <div class="nozzles">
+      <div class="nozzle">
+        <strong>N1</strong>
+        <button data-z="1" data-dir="1" title="PgDn">down</button>
+        <button data-z="1" data-dir="-1" title="PgUp">up</button>
+        <button data-rot="1" data-dir="-1">⟲</button>
+        <button data-rot="1" data-dir="1">⟳</button>
+        <button data-zero="1" class="ghost">0°</button>
+      </div>
+      <div class="nozzle">
+        <strong>N2</strong>
+        <button data-z="2" data-dir="1">down</button>
+        <button data-z="2" data-dir="-1">up</button>
+        <button data-rot="2" data-dir="-1">⟲</button>
+        <button data-rot="2" data-dir="1">⟳</button>
+        <button data-zero="2" class="ghost">0°</button>
+      </div>
+    </div>
+    <div class="steps" id="a-steps">
+      <span>Rotate °</span>
+      <button data-step="1">1</button><button data-step="5">5</button>
+      <button data-step="45">45</button><button data-step="90" class="sel">90</button>
+    </div>
+    <p class="hint">Keys: arrows = X/Y · PgUp/PgDn = N1 up/down · Esc = E-stop</p>
+  </section>
+
+  <section class="card cams">
+    <h2>Cameras</h2>
+    <p class="hint" id="cams-empty" hidden>No cameras configured</p>
+    <div class="cam-grid" id="cam-grid">
+      <div class="cam-card" data-cam-card="down">
+        <div class="cam-head">
+          <strong>Down</strong>
+          <span class="cam-status" data-cam-status="down">–</span>
+        </div>
+        <div class="view">
+          <img data-cam="down" src="/cameras/down/stream.mjpg" alt="Down camera">
+          <div class="xhair"><span class="ring"></span></div>
+        </div>
+      </div>
+      <div class="cam-card" data-cam-card="up">
+        <div class="cam-head">
+          <strong>Up</strong>
+          <span class="cam-status" data-cam-status="up">–</span>
+          <button id="btn-leds" class="led-btn" data-out="leds">Up LEDs</button>
+        </div>
+        <div class="view">
+          <img data-cam="up" src="/cameras/up/stream.mjpg" alt="Up camera">
+          <div class="xhair"><span class="ring"></span></div>
+        </div>
+      </div>
+    </div>
+    <p class="hint">Click a view to move the head so that point is under the camera centre. Needs the camera calibrated (Setup tab).</p>
+  </section>
+
+  <section class="card outputs">
+    <h2>Outputs</h2>
+    <div class="toggles" id="toggles"></div>
+    <h3>Log</h3>
+    <ol class="log" data-log></ol>
+  </section>
+</main>
+
+<main id="tab-setup" data-tab="setup" hidden>
+  <section class="card step" id="step-config">
+    <h2>Config files</h2>
+    <p>After editing <code>config/machine.yaml</code> (limits, motion) or <code>config/cameras.yaml</code> (camera rotation, resolution), apply the changes here. No restart is needed, so the cameras are not re-opened.</p>
+    <div class="actions">
+      <button data-task="reload-config">Reload config</button>
+    </div>
+  </section>
+  <section class="card step" id="step-down-scale">
+    <h2>1 · Down camera scale</h2>
+    <p>Home the machine, jog the down camera over something with texture (a PCB, a ruler or printed text) — not a plain or repeating pattern. The head then makes small moves and measures how far the image shifts, which gives the pixel-to-mm scale.</p>
+    <div class="view-wrap" data-cam-card="down">
+      <div class="view"><img data-cam="down" alt="Down camera"><div class="xhair"><span class="ring"></span></div></div>
+    </div>
+    <div class="actions">
+      <label class="inline">Step mm <input id="down-step-mm" class="num" type="number" step="0.1" min="0.1" value="1.0"></label>
+      <button data-task="down-scale" class="primary">Calibrate down camera</button>
+    </div>
+    <p class="value">Scale: <span data-cal="down">not calibrated</span></p>
+  </section>
+
+  <section class="card step" id="step-nozzle-offsets">
+    <h2>2 · Nozzle offsets</h2>
+    <h3>a) Camera on mark</h3>
+    <p>Put a small mark (e.g. a dot on tape) on the bed and centre the down camera on it (click in the view or use [Auto-centre on mark]).</p>
+    <div class="view-wrap" data-cam-card="down">
+      <div class="view"><img data-cam="down" alt="Down camera"><div class="xhair"><span class="ring"></span></div></div>
+    </div>
+    <div class="actions">
+      <button data-task="mark-centre">Auto-centre on mark</button>
+      <button data-task="mark-set" class="primary">Camera is on mark</button>
+    </div>
+    <p class="value">Mark: <span data-cal="camera_mark">not recorded</span></p>
+
+    <h3>b) Nozzle 1</h3>
+    <p>Jog nozzle 1 down until it nearly touches the mark and centre it by eye, then raise it.</p>
+    <div class="actions">
+      <button data-task="offset-1" class="primary">Nozzle 1 is on mark</button>
+      <button data-task="to-cam-1">Nozzle 1 → camera point</button>
+      <button data-task="from-cam-1">Camera → nozzle 1</button>
+    </div>
+    <p class="value">Offset N1: <span data-cal="offset-1">not recorded</span></p>
+
+    <h3>c) Nozzle 2</h3>
+    <p>Jog nozzle 2 down until it nearly touches the mark and centre it by eye, then raise it.</p>
+    <div class="actions">
+      <button data-task="offset-2" class="primary">Nozzle 2 is on mark</button>
+      <button data-task="to-cam-2">Nozzle 2 → camera point</button>
+      <button data-task="from-cam-2">Camera → nozzle 2</button>
+    </div>
+    <p class="value">Offset N2: <span data-cal="offset-2">not recorded</span></p>
+  </section>
+
+  <section class="card step" id="step-prick-offset">
+    <h2>2b · Prick needle offset</h2>
+    <p>Centre the down camera on the mark ([Camera is on mark] in step 2), switch the prick needle on (Machine tab outputs or the button here), jog until the needle tip touches the mark, then [Needle is on mark], then switch the needle off.</p>
+    <div class="view-wrap" data-cam-card="down">
+      <div class="view"><img data-cam="down" alt="Down camera"><div class="xhair"><span class="ring"></span></div></div>
+    </div>
+    <div class="actions">
+      <button data-task="prick-on">Needle down</button>
+      <button data-task="prick-off">Needle up</button>
+      <button data-task="prick-offset" class="primary">Needle is on mark</button>
+    </div>
+    <p class="value">Prick offset: <span data-cal="prick-offset">not recorded</span></p>
+  </section>
+
+  <section class="card step" id="step-up-scale">
+    <h2>3 · Up camera scale</h2>
+    <p>Move nozzle 1 over the up camera so its tip is roughly centred (LEDs on). The head then makes small moves and measures how the tip shifts in the up view.</p>
+    <div class="view-wrap" data-cam-card="up">
+      <div class="view"><img data-cam="up" alt="Up camera"><div class="xhair"><span class="ring"></span></div></div>
+    </div>
+    <div class="actions">
+      <label class="inline">Step mm <input id="up-step-mm" class="num" type="number" step="0.1" min="0.1" value="1.0"></label>
+      <button data-task="up-scale" class="primary">Calibrate up camera</button>
+    </div>
+    <p class="value">Scale: <span data-cal="up">not calibrated</span></p>
+  </section>
+
+  <section class="card step" id="step-up-positions">
+    <h2>4 · Up camera positions</h2>
+    <h3>Nozzle 1</h3>
+    <p>Centre nozzle 1 over the up camera (click the up view or use [Auto-centre tip]).</p>
+    <div class="view-wrap" data-cam-card="up">
+      <div class="view"><img data-cam="up" alt="Up camera"><div class="xhair"><span class="ring"></span></div></div>
+    </div>
+    <div class="actions">
+      <button data-task="up-centre">Auto-centre tip</button>
+      <button data-task="up-pos-1" class="primary">Record nozzle 1 position</button>
+    </div>
+    <p class="value">Position N1: <span data-cal="up-1">not recorded</span></p>
+
+    <h3>Nozzle 2</h3>
+    <p>Centre nozzle 2 over the up camera the same way, then record it.</p>
+    <div class="actions">
+      <button data-task="up-pos-2" class="primary">Record nozzle 2 position</button>
+    </div>
+    <p class="value">Position N2: <span data-cal="up-2">not recorded</span></p>
+  </section>
+
+  <section class="card">
+    <h2>Log</h2>
+    <ol class="log" data-log></ol>
+  </section>
+</main>
+
+<main id="tab-feeders" data-tab="feeders" hidden>
+  <section class="card wide-card" id="feeder-cam">
+    <h2>Down camera</h2>
+    <div class="view-wrap" data-cam-card="down">
+      <div class="view"><img data-cam="down" alt="Down camera"><div class="xhair"><span class="ring"></span></div></div>
+    </div>
+    <p class="hint">Click the view to move the head so that point is under the crosshair. To teach a feeder, jog or click until the crosshair is on the centre of the first pocket, then press Teach pick. Home the machine first.</p>
+  </section>
+
+  <section class="card wide-card">
+    <div class="card-head">
+      <h2>Feeders</h2>
+      <button id="feeder-new">New feeder</button>
+    </div>
+    <div class="table-wrap">
+      <table class="feeders">
+        <thead>
+          <tr><th>ID</th><th>Name</th><th>Kind</th><th>Pitch</th><th>Count</th><th>Pick location</th><th>Status</th></tr>
+        </thead>
+        <tbody id="feeder-rows"></tbody>
+      </table>
+    </div>
+    <p class="hint" id="feeder-empty" hidden>No feeders yet. Press New feeder to add one.</p>
+  </section>
+
+  <section class="card">
+    <h2 id="feeder-form-title">Feeder</h2>
+    <form id="feeder-form">
+      <div class="form-grid">
+        <label>ID <input name="id" autocomplete="off"></label>
+        <label>Name <input name="name" autocomplete="off"></label>
+        <label>Kind
+          <select name="kind"><option value="strip">strip</option><option value="drag">drag</option></select>
+        </label>
+        <label>Pick X mm <input name="pick_x" type="number" step="any"></label>
+        <label>Pick Y mm <input name="pick_y" type="number" step="any"></label>
+        <label>Direction X <input name="dir_x" type="number" step="any"></label>
+        <label>Direction Y <input name="dir_y" type="number" step="any"></label>
+        <label>Pitch mm <input name="pitch" type="number" step="any" min="0"></label>
+        <label>Count <input name="count" type="number" step="1" min="0"></label>
+        <label>Capacity <input name="capacity" type="number" step="1" min="0" placeholder="unknown"></label>
+        <label>Part rotation ° <input name="rotation" type="number" step="any"></label>
+        <label>Pick depth mm <input name="pick_depth" type="number" step="any" min="0"></label>
+        <label class="drag-only">Prick X mm <input name="prick_x" type="number" step="any"></label>
+        <label class="drag-only">Prick Y mm <input name="prick_y" type="number" step="any"></label>
+        <label class="check drag-only"><input name="needs_feed" type="checkbox"> Needs feed</label>
+        <label class="check"><input name="enabled" type="checkbox"> Enabled</label>
+        <label>Value <input name="value" autocomplete="off"></label>
+        <label>Package <input name="package" autocomplete="off"></label>
+      </div>
+      <div class="actions">
+        <button type="submit" class="primary">Save</button>
+        <button type="button" id="feeder-delete" class="danger">Delete</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>Actions</h2>
+    <p class="hint" id="feeder-selected">Select a feeder in the table, or press New feeder.</p>
+    <div class="steps" id="nozzle-sel">
+      <span>Nozzle</span>
+      <button data-nozzle="1" class="sel">N1</button><button data-nozzle="2">N2</button>
+    </div>
+    <h3>Feeder</h3>
+    <div class="actions">
+      <button data-feeder-action="teach-pick">Teach pick from camera</button>
+      <button data-feeder-action="teach-prick" data-drag-only hidden>Teach prick from camera</button>
+      <button data-feeder-action="goto">Go to pick</button>
+      <button data-feeder-action="feed" data-drag-only hidden>Feed</button>
+    </div>
+    <h3>Head</h3>
+    <div class="actions">
+      <button data-feeder-action="pick" class="primary">Pick</button>
+      <button data-feeder-action="pick-place">Pick &amp; place at crosshair</button>
+      <button data-feeder-action="place">Place at crosshair</button>
+      <button data-feeder-action="discard">Discard</button>
+    </div>
+    <p class="value">Holding: <span id="holding">–</span></p>
+    <p class="hint">Prick: put the crosshair on the point where the needle enters the tape, then Teach prick. Drag feeders feed a pitch before each pick when needed.</p>
+  </section>
+
+  <section class="card">
+    <h2>Log</h2>
+    <ol class="log" data-log></ol>
+  </section>
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

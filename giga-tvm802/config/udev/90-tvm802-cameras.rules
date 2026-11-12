@@ -1,0 +1,10 @@
+# Keep the TVM802's Microsoft USB cameras (045e:0294) out of USB autosuspend.
+# With autosuspend on, they suspend 2 s after being plugged in and often fail to
+# wake up again: the kernel waits forever for a USB control reply (usb_start_wait_urb)
+# and the camera has to be replugged.
+#
+# Install:
+#   sudo cp config/udev/90-tvm802-cameras.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules
+#   sudo udevadm trigger --subsystem-match=usb --attr-match=idVendor=045e
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="045e", ATTR{idProduct}=="0294", TEST=="power/control", ATTR{power/control}="on"

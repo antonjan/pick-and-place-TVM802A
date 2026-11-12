@@ -1,0 +1,130 @@
+"""Machine configuration (config/machine.yaml) as typed dataclasses.
+
+Unknown keys in the YAML are rejected so typos don't silently fall back to
+defaults.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+
+@dataclass
+class ControllerConfig:
+    host: str = "192.168.0.8"
+    port: int = 701
+    poll_interval_idle: float = 0.2  # s between state requests when idle
+    poll_interval_moving: float = 0.03  # s between state requests while moving
+    reconnect_delay: float = 2.0
+
+
+@dataclass
+class StepsConfig:
+    x: float = 32808  # steps per mm
+    y: float = 32808
+    z: float = 32808
+    a: float = 4444.44  # steps per degree (both nozzles)
+
+
+@dataclass
+class LimitsConfig:
+    # Soft limits in mm (machine coordinates after homing). Home is at the
+    # max corner: X register 9 843 000 = 300.0 mm, Y 11 532 000 = 351.5 mm.
+    # The min ends are NOT measured yet. Measure and tighten before trusting them.
+    x: tuple[float, float] = (0.0, 299.0)
+    y: tuple[float, float] = (0.0, 350.5)
+    # Maximum nozzle depth (mm) below the up position for each nozzle.
+    z1_max: float = 8.0
+    z2_max: float = 8.0
+
+
+@dataclass
+class HomingConfig:
+    x_register: int = 9_843_000  # register value written at the X switch
+    y_register: int = 11_532_000
+    approach_mm: float = 1000.0  # "far" target, past the end of travel
+    back_off_mm: float = 5.0
+    approach_timeout: float = 60.0
+    release_timeout: float = 15.0
+    second_approach_timeout: float = 15.0
+
+
+@dataclass
+class MotionConfig:
+    # The controller only moves in whole multiples of this many steps (it
+    # rounds the requested *distance* up). Measured on the real machine:
+    # 1000 steps on every axis = 0.0305 mm (X/Y/Z), 0.225 deg (A).
+    step_quantum: int = 1000
+    tolerance_steps: int = 2  # an axis counts as arrived within this many steps
+    settle_polls: int = 3  # identical consecutive positions required
+    # Conservative speed estimates, only used to compute move timeouts.
+    xy_speed: float = 25.0  # mm/s (real speed not measured yet; keep low)
+    z_speed: float = 20.0  # mm/s
+    a_speed: float = 180.0  # deg/s
+    min_timeout: float = 3.0  # s added to every move timeout
+    safe_z_tolerance: float = 0.05  # mm; |z| above this counts as "nozzle down"
+    allow_unhomed_jog: bool = True  # X/Y jogs allowed before homing (no soft limits)
+    max_unhomed_jog: float = 10.0  # mm per jog while unhomed
+
+
+@dataclass
+class ServerConfig:
+    host: str = "127.0.0.1"
+    port: int = 8080
+
+
+@dataclass
+class HeadConfig:
+    pick_dwell: float = 0.15  # s with the nozzle down on the part, vacuum on
+    place_dwell: float = 0.10  # s with the nozzle down before releasing
+    blow_time: float = 0.10  # s of blow-off after releasing vacuum at place/discard
+    vacuum_settle: float = 0.10  # s after raising before reading the vacuum sensor
+    prick_settle: float = 0.20  # s after switching the needle down/up
+    check_vacuum: bool = True  # verify part presence after pick
+    place_depth: float = 3.0  # default nozzle depth for placing (mm)
+    discard: tuple[float, ...] = ()  # world [x, y] of the discard bin; empty = not set
+
+
+@dataclass
+class MachineConfig:
+    controller: ControllerConfig = field(default_factory=ControllerConfig)
+    steps: StepsConfig = field(default_factory=StepsConfig)
+    limits: LimitsConfig = field(default_factory=LimitsConfig)
+    homing: HomingConfig = field(default_factory=HomingConfig)
+    motion: MotionConfig = field(default_factory=MotionConfig)
+    server: ServerConfig = field(default_factory=ServerConfig)
+    head: HeadConfig = field(default_factory=HeadConfig)
+
+
+def _build(cls, data: dict[str, Any] | None, path: str):
+    if data is None:
+        return cls()
+    if not isinstance(data, dict):
+        raise ValueError(f"{path}: expected a mapping")
+    fields = {f.name: f for f in dataclasses.fields(cls)}
+    unknown = set(data) - set(fields)
+    if unknown:
+        raise ValueError(f"{path}: unknown key(s) {sorted(unknown)}")
+    kwargs = {}
+    for name, value in data.items():
+        default = getattr(cls(), name)
+        if dataclasses.is_dataclass(default):
+            kwargs[name] = _build(type(default), value, f"{path}.{name}")
+        elif isinstance(default, tuple):
+            kwargs[name] = tuple(float(v) for v in value)
+        else:
+            kwargs[name] = type(default)(value)
+    return cls(**kwargs)
+
+
+def load_config(path: str | Path | None) -> MachineConfig:
+    if path is None:
+        return MachineConfig()
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+    return _build(MachineConfig, data, Path(path).name)

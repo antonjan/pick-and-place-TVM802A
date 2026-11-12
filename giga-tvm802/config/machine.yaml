@@ -1,0 +1,51 @@
+# TVM802 machine configuration. Every key is optional; defaults live in pnp/config.py.
+# Units: mm, degrees, seconds.
+
+controller:
+  host: 192.168.0.8
+  port: 701
+  poll_interval_idle: 0.2
+  poll_interval_moving: 0.03
+
+steps:
+  x: 32808
+  y: 32808
+  z: 32808
+  a: 4444.44
+
+limits:
+  # Measured 2026-11-12: absolute ends at X -115 and Y -77 (front/left), home corner at
+  # X 300.018 / Y 351.5. Soft limits sit 2 mm inside the minimums and ~1 mm inside home.
+  x: [-113.0, 299.0]
+  y: [-75.0, 350.5]
+  # How far each nozzle may go down (mm). Both nozzles were checked down to
+  # 7.803 mm (256 000 steps) on 2026-11-12 and return to 0 on homing.
+  z1_max: 7.803
+  z2_max: 7.803
+
+homing:
+  x_register: 9843000
+  y_register: 11532000
+  approach_mm: 1000
+  back_off_mm: 5
+
+motion:
+  tolerance_steps: 2
+  settle_polls: 3
+  allow_unhomed_jog: true
+  max_unhomed_jog: 10
+
+server:
+  host: 127.0.0.1
+  port: 8080
+
+# Pick and place head (defaults shown; all optional).
+# head:
+#   pick_dwell: 0.15      # s nozzle down on the part, vacuum on
+#   place_dwell: 0.10     # s nozzle down before releasing
+#   blow_time: 0.10       # s blow-off after releasing at place/discard
+#   vacuum_settle: 0.10   # s after raising before checking the vacuum sensor
+#   prick_settle: 0.20    # s after switching the feeder needle down/up
+#   check_vacuum: true    # verify the part is present after a pick
+#   place_depth: 3.0      # default nozzle depth for placing (mm)
+#   discard: []           # world [x, y] of the discard bin, e.g. [20.0, 300.0]
