@@ -146,7 +146,8 @@ def test_place_releases_at_target_and_blows(tmp_path):
 
 def test_failed_pick_does_not_advance(tmp_path):
     async def body():
-        async with rig(tmp_path, sim_cfg=SimConfig(pick_success=False)) as (sim, m, head, store):
+        async with rig(tmp_path, sim_cfg=SimConfig(pick_success=False),
+                       head_cfg=HeadConfig(check_vacuum=True)) as (sim, m, head, store):
             store.upsert(strip_feeder())
             with pytest.raises(PickError):
                 await head.pick(1, store.get("F1"))
@@ -280,4 +281,108 @@ def test_failed_place_keeps_part(tmp_path):
             assert await m.has_part(1)
             assert head.holding[1] == "F1"
             assert abs(m.position()["z"]) < 0.031  # nozzle lifted clear
+    run(body())
+
+
+def test_wait_for_part_tolerates_slow_vacuum():
+    """The sensor may need a few reads before the vacuum has built up."""
+    from pnp.config import HeadConfig as _HC
+
+    class SlowSensor:
+        def __init__(self, ready_after):
+            self.reads = 0
+            self.ready_after = ready_after
+
+        async def has_part(self, nozzle):
+            self.reads += 1
+            return self.reads > self.ready_after
+
+    head = HeadOps.__new__(HeadOps)
+    head.cfg = _HC(vacuum_timeout=0.6)
+    head.machine = SlowSensor(ready_after=4)          # part seen on the 5th read (~0.2 s)
+    assert run(head._wait_for_part(1)) is True
+    head.machine = SlowSensor(ready_after=10_000)     # never: gives up after the timeout
+    head.cfg = _HC(vacuum_timeout=0.2)
+    assert run(head._wait_for_part(1)) is False
+
+
+
+def test_vacuum_stays_on_after_pick_by_default(tmp_path):
+    """Default (check_vacuum off): the sensor is not consulted and vacuum stays on
+    until the place, even if the sensor never reports the part (2026-11-13)."""
+    async def body():
+        async with rig(tmp_path, sim_cfg=SimConfig(pick_success=False)) as (sim, m, head, store):
+            store.upsert(strip_feeder())
+            await head.pick(1, store.get("F1"))          # no PickError: sensor not used
+            assert head.holding[1] == "F1"
+            await asyncio.sleep(1.0)                      # well past the old 0.6 s check
+            assert sim.machine.outputs & p.Output.VACUUM1  # still sucking
+            await head.place(1, (120.0, 80.0))
+            assert not sim.machine.outputs & p.Output.VACUUM1
+            assert head.holding[1] is None
+    run(body())
+
+
+def test_error_during_pick_keeps_vacuum_and_marks_holding(tmp_path):
+    """A failure after the vacuum went on must not drop a part that may be on the nozzle."""
+    async def body():
+        async with rig(tmp_path) as (sim, m, head, store):
+            store.upsert(strip_feeder(pick_depth=50.0))  # beyond z1_max: the nozzle move fails
+            with pytest.raises(MachineError):
+                await head.pick(1, store.get("F1"))
+            assert sim.machine.outputs & p.Output.VACUUM1  # vacuum kept on
+            assert head.holding[1] == "F1"                  # must Place or Discard next
+            assert abs(m.position()["z"]) < 0.031           # lifted clear
+            with pytest.raises(MachineError, match="already holds"):
+                await head.pick(1, store.get("F1"))
+    run(body())
+
+
+
+def _drag_feeder(**kw):
+    base = dict(id="D1", kind="drag", pick=(120.0, 60.0), direction=(1.0, 0.0), pitch=4.0,
+                prick=(116.0, 64.0), pick_depth=3.0)
+    base.update(kw)
+    return Feeder(**base)
+
+
+def test_feed_does_not_drag_when_needle_does_not_go_down(tmp_path):
+    from pnp.machine.machine import NeedleError
+
+    async def body():
+        async with rig(tmp_path, sim_cfg=SimConfig(needle_stuck="up")) as (sim, m, head, store):
+            store.upsert(_drag_feeder())
+            feeder = store.get("D1")
+            with pytest.raises(NeedleError, match="did not go down"):
+                await head.feed(feeder)
+            # the head stayed where the needle was supposed to go in: no drag happened
+            hx, hy = head.head_for("prick", feeder.prick)
+            assert_at((m.position()["x"], m.position()["y"]), (hx, hy))
+            assert store.get("D1").needs_feed is True
+            assert not sim.machine.outputs & p.Output.PRICK
+    run(body())
+
+
+def test_feed_waits_on_stuck_needle_and_continues_after_clear(tmp_path):
+    from pnp.machine.machine import NeedleDown
+
+    async def body():
+        async with rig(tmp_path, sim_cfg=SimConfig(needle_stuck="down")) as (sim, m, head, store):
+            store.upsert(_drag_feeder())
+            feeder = store.get("D1")
+            feeding = asyncio.create_task(head.feed(feeder))
+            for _ in range(250):
+                if m.alarm is not None:
+                    break
+                await asyncio.sleep(0.02)
+            assert m.alarm is not None and not feeding.done()
+            assert store.get("D1").needs_feed is True  # not fed yet
+            with pytest.raises(NeedleDown):  # nothing may move while it is stuck
+                await m.move_to(x=150.0)
+            sim.machine.cfg.needle_stuck = None  # freed by hand
+            await asyncio.sleep(0.2)
+            m.alarm_clear()
+            await asyncio.wait_for(feeding, 5)  # the feed finishes normally
+            assert store.get("D1").needs_feed is False
+            assert m.alarm is None
     run(body())

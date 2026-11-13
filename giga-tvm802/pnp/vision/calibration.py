@@ -42,14 +42,33 @@ def _parabola_offset(left: float, centre: float, right: float) -> float:
     return float(np.clip(0.5 * (left - right) / denom, -0.5, 0.5))
 
 
-def measure_shift(template: np.ndarray, img: np.ndarray, min_score: float = 0.6) -> tuple[float, float, float]:
+def highpass(img, sigma: float = 8.0) -> np.ndarray:
+    """Grayscale float32 image minus a heavy blur of itself.
+
+    Removes slow brightness changes that stay put in the image while the head
+    moves (on the TVM802: the head's red ring-light glow and vignetting), so that
+    template matching follows the board detail instead of the glow. Without it,
+    the real machine's scale fit had a 17.4 px residual; with it, 0.21 px.
+    """
+    g = to_gray(img).astype(np.float32)
+    return g - cv2.GaussianBlur(g, (0, 0), sigma, borderType=cv2.BORDER_REFLECT)
+
+
+def measure_shift(template: np.ndarray, img: np.ndarray, min_score: float = 0.6,
+                  highpass_sigma: float | None = 8.0) -> tuple[float, float, float]:
     """Where the template's centre lies in img, minus the image centre.
 
     Returns (su, sv, score). With a template cut from the centre of a reference
     frame, this is the feature shift s (px) between the reference and img.
+    Both images are high-pass filtered first (see `highpass`) unless
+    highpass_sigma is None.
     """
-    g_t = to_gray(template)
-    g_i = to_gray(img)
+    if highpass_sigma:
+        g_t = highpass(template, highpass_sigma)
+        g_i = highpass(img, highpass_sigma)
+    else:
+        g_t = to_gray(template)
+        g_i = to_gray(img)
     th, tw = g_t.shape[:2]
     h, w = g_i.shape[:2]
     if th >= h or tw >= w:
@@ -119,11 +138,20 @@ def move_for_offset(A: np.ndarray, offset_px) -> tuple[float, float]:
     return float(d[0]), float(d[1])
 
 
-def find_blob(img, polarity: str = "auto", min_area: int = 20, max_area: int | None = None):
+def find_blob(img, polarity: str = "auto", min_area: int = 20, max_area: int | None = None, *,
+              block: int | None = None, min_circularity: float = 0.0):
     """Centroid (u, v) of the blob nearest the image centre, or None.
 
-    Gaussian blur, Otsu threshold. polarity "dark" selects pixels darker than
-    the threshold, "bright" brighter, "auto" the minority side of the split.
+    Without `block`: Gaussian blur and one global Otsu threshold. polarity
+    "dark" selects pixels darker than the threshold, "bright" brighter, "auto"
+    the minority side of the split.
+
+    With `block` (odd, px): a local (adaptive) threshold over block x block
+    neighbourhoods, so uneven lighting such as the TVM802 head's red glow does
+    not turn a whole dark region into one "blob". Only blobs that do not touch
+    the image border and are at least `min_circularity` round
+    (4*pi*area/perimeter^2) count. "auto" then considers dark and bright blobs.
+
     Coordinates use the continuous convention (see module docstring).
     """
     if polarity not in ("dark", "bright", "auto"):
@@ -131,31 +159,51 @@ def find_blob(img, polarity: str = "auto", min_area: int = 20, max_area: int | N
     gray = to_gray(img)
     h, w = gray.shape[:2]
     blur = cv2.GaussianBlur(gray, (5, 5), 0)
-    t, _ = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    dark = (blur <= t).astype(np.uint8) * 255
-    bright = cv2.bitwise_not(dark)
 
-    if polarity == "auto":
-        polarity = "dark" if np.count_nonzero(dark) <= np.count_nonzero(bright) else "bright"
-    mask = dark if polarity == "dark" else bright
+    if block is None:
+        t, _ = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        dark = (blur <= t).astype(np.uint8) * 255
+        bright = cv2.bitwise_not(dark)
+        if polarity == "auto":
+            polarity = "dark" if np.count_nonzero(dark) <= np.count_nonzero(bright) else "bright"
+        masks = [dark if polarity == "dark" else bright]
+        mode = cv2.RETR_EXTERNAL
+    else:
+        block = max(3, int(block) | 1)
+        masks = []
+        if polarity in ("dark", "auto"):
+            masks.append(cv2.adaptiveThreshold(blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                               cv2.THRESH_BINARY_INV, block, 8))
+        if polarity in ("bright", "auto"):
+            masks.append(cv2.adaptiveThreshold(blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                               cv2.THRESH_BINARY, block, -8))
+        mode = cv2.RETR_LIST  # a hole inside a ring (e.g. a through-hole pad) counts too
 
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
     cx0, cy0 = w / 2.0, h / 2.0
     best = None
     best_d2 = float("inf")
-    for cnt in contours:
-        m = cv2.moments(cnt)
-        if m["m00"] <= 0:
-            continue
-        area = m["m00"]
-        if area < min_area or (max_area is not None and area > max_area):
-            continue
-        u = m["m10"] / m["m00"] + 0.5
-        v = m["m01"] / m["m00"] + 0.5
-        d2 = (u - cx0) ** 2 + (v - cy0) ** 2
-        if d2 < best_d2:
-            best_d2 = d2
-            best = (float(u), float(v))
+    for mask in masks:
+        contours, _ = cv2.findContours(mask, mode, cv2.CHAIN_APPROX_NONE)
+        for cnt in contours:
+            m = cv2.moments(cnt)
+            if m["m00"] <= 0:
+                continue
+            area = m["m00"]
+            if area < min_area or (max_area is not None and area > max_area):
+                continue
+            if block is not None:
+                x, y, bw, bh = cv2.boundingRect(cnt)
+                if x <= 1 or y <= 1 or x + bw >= w - 1 or y + bh >= h - 1:
+                    continue  # cut by the image border: centroid would be wrong
+                perimeter = cv2.arcLength(cnt, True)
+                if perimeter <= 0 or 4 * np.pi * area / perimeter ** 2 < min_circularity:
+                    continue
+            u = m["m10"] / m["m00"] + 0.5
+            v = m["m01"] / m["m00"] + 0.5
+            d2 = (u - cx0) ** 2 + (v - cy0) ** 2
+            if d2 < best_d2:
+                best_d2 = d2
+                best = (float(u), float(v))
     return best
 
 
@@ -210,33 +258,63 @@ async def calibrate_scale(machine, camera, *, step_mm: float = 1.0, settle: floa
 
 async def centre_on_blob(machine, camera, A, *, polarity: str = "auto", iterations: int = 4,
                          tol_px: float = 1.0, settle: float = 0.2,
-                         resolution_mm: float = 0.0) -> tuple[float, float]:
-    """Jog the head until the nearest blob sits within tol_px of the image centre.
+                         resolution_mm: float = 0.0,
+                         mark_mm: tuple[float, float] = (0.3, 4.0),
+                         max_move_mm: float = 2.0) -> tuple[float, float]:
+    """Jog the head until the nearest round mark sits within tol_px of the image centre.
+
+    Only round blobs between mark_mm[0] and mark_mm[1] across count, found with a
+    local threshold (see find_blob), so uneven lighting can't pose as a mark.
+
+    Safety (2026-11-13: on the real machine the old version locked onto the dark
+    area inside the head's glow, which moves with the camera, and kept driving
+    the head away):
+      * no single correction may exceed max_move_mm;
+      * after each move the mark must be clearly closer to the centre,
+        otherwise the loop stops: the "mark" does not move with the board.
 
     resolution_mm: smallest move the machine can make (TVM802: 0.0305 mm). The
     loop also counts as converged when the remaining correction is below half
     of it on both axes, since a smaller move cannot be executed.
 
-    Returns the final head (x, y). Raises CalibrationError if no blob is seen or
-    the loop does not converge within `iterations` moves.
+    Returns the final head (x, y). Raises CalibrationError if no mark is seen,
+    a correction is too large, the mark does not follow, or the loop does not
+    converge within `iterations` moves.
     """
     A = np.asarray(A, dtype=float)
+    k = float(np.mean(np.linalg.svd(A, compute_uv=False)))  # px per mm
+    min_area = np.pi * (mark_mm[0] * k / 2) ** 2
+    max_area = np.pi * (mark_mm[1] * k / 2) ** 2
+    block = max(31, int(2.5 * k) | 1)
+    prev = None
     for i in range(iterations + 1):
         frame = await camera.fresh_frame(after=time.monotonic() + settle)
-        blob = find_blob(frame.image, polarity=polarity)
+        blob = find_blob(frame.image, polarity=polarity, min_area=min_area, max_area=max_area,
+                         block=block, min_circularity=0.6)
         if blob is None:
-            raise CalibrationError("no blob found in the camera image")
+            raise CalibrationError(
+                f"no round mark {mark_mm[0]:g}-{mark_mm[1]:g} mm across found near the crosshair")
         h, w = frame.image.shape[:2]
         o = (blob[0] - w / 2.0, blob[1] - h / 2.0)
-        if float(np.hypot(*o)) <= tol_px:
+        dist = float(np.hypot(*o))
+        if dist <= tol_px:
             pos = machine.position()
             return float(pos["x"]), float(pos["y"])
+        if prev is not None and dist > 0.7 * prev and prev > 3 * tol_px:
+            raise CalibrationError(
+                f"stopped: the mark did not move towards the centre ({prev:.1f} px -> {dist:.1f} px). "
+                "It may be a reflection or glare that moves with the camera")
         dx, dy = move_for_offset(A, o)
         if resolution_mm > 0 and abs(dx) < resolution_mm / 2 and abs(dy) < resolution_mm / 2:
             pos = machine.position()
             return float(pos["x"]), float(pos["y"])
         if i == iterations:
             break
+        if float(np.hypot(dx, dy)) > max_move_mm:
+            raise CalibrationError(
+                f"the nearest mark is {np.hypot(dx, dy):.1f} mm away (limit {max_move_mm:g} mm): "
+                "jog closer or click on it first")
+        prev = dist
         pos = machine.position()
         await machine.move_to(x=float(pos["x"]) + dx, y=float(pos["y"]) + dy)
-    raise CalibrationError(f"did not centre on blob within {iterations} iterations")
+    raise CalibrationError(f"did not centre on the mark within {iterations} moves")

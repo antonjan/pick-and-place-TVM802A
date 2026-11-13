@@ -14,8 +14,43 @@
       "port": 8080
     },
     {
+      "name": "tvm-pnp-sim-windows",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-m",
+        "pnp.api",
+        "--sim",
+        "--port",
+        "8080"
+      ],
+      "port": 8080
+    },
+    {
       "name": "tvm-pnp-machine",
       "runtimeExecutable": ".venv/bin/python",
+      "runtimeArgs": [
+        "-m",
+        "pnp.api",
+        "--port",
+        "8081"
+      ],
+      "port": 8081
+    },
+    {
+      "name": "tvm-pnp-sim-linux",
+      "runtimeExecutable": ".venv-linux/bin/python",
+      "runtimeArgs": [
+        "-m",
+        "pnp.api",
+        "--sim",
+        "--port",
+        "8080"
+      ],
+      "port": 8080
+    },
+    {
+      "name": "tvm-pnp-machine-linux",
+      "runtimeExecutable": ".venv-linux/bin/python",
       "runtimeArgs": [
         "-m",
         "pnp.api",

@@ -205,7 +205,7 @@ Each phase ends in something usable on the real machine.
 | 4 | **KiCad job, blind placement** | Import `.pos`, set board origin by jogging, place a full job of 0805s without vision correction |
 | 5 | **Fiducials** | Board alignment from 2–3 fiducials; placement error dominated by pick error, not board offset |
 | 6 | **Bottom vision** | Per-part offset/rotation correction; mis-pick detection by part size; SOIC/QFN place correctly |
-| 7 | **Polish** | Two-nozzle cycles, speed profiles per package, job resume, nozzle runout compensation, feeder hole vision, logs/stats |
+| 7 | **Polish** | Speed profiles per package, job resume, nozzle runout compensation, feeder hole vision, logs/stats |
 
 ### Hardware-in-the-loop safety checklist (before phase 1 on the real machine)
 
@@ -224,10 +224,15 @@ These don't block phase 0 but need answers before the listed phase.
 2. **Speed blob (phase 1/7):** the 76-byte `0x06` frame looks like 12 × int32 values plus 6 × int32 speeds (`0x0fa0` = 4000, `0x0bb8` = 3000, `0x1388` = 5000). Capturing the vendor software at different speed settings would let us expose real speed/acceleration control.
 3. **Travel and Z (phase 1):** usable X/Y travel, the safe-Z position, and how deep each nozzle goes in mm, for pick height and board height.
 4. **Strip feeders (phase 3):** how many feeder lanes and of which widths (8/12/16 mm)? Does the stock software feed by poking the needle into the **component pocket** or the **sprocket hole**, and how far does it drag? A short phone video of the stock software feeding would answer it.
+   - *Answered 2026-11-12:* the stock software feeds with the prick needle. 26 stock lanes, but the machine is modified with extra stacks, and the back stack is swapped for different tape sizes per job. So lane sizes and positions must be user-defined in the app, not hard-coded. The needle goes into a **sprocket hole**, drags the tape, then lifts and releases. Each feed drags the tape **one part pitch** (confirmed).
+   - *Needle point (2026-11-12):* a pocket centre is 2 mm along the tape from the nearest sprocket hole (EIA-481 P2), so generated lanes put the needle on the hole 2 mm upstream, not level with the pocket. **Open: 2 mm pitch tape (0402/0201).** Holes are 4 mm apart, so after a 2 mm drag no hole is under the needle point any more. Find out how the stock software feeds 2 mm pitch (e.g. a 4 mm drag every second part, alternating needle points, or no support at all).
+   - *Feeder banks (agreed design):* both a **back stack** and an added **front stack** are swapped for different tape sizes per job. Each stack is a bank with its own saved, named **layouts** (position, lane count, lane widths/positions, feed direction). Loading a layout replaces that bank's lanes without re-teaching each one.
 5. **Machine IP:** is `192.168.0.8` fixed? It will be configurable either way.
 6. **Cameras (phase 2):** exact camera models and resolution; does the up camera need a specific exposure setting (v4l2-ctl manual exposure)?
 7. **Nozzles (phase 6):** which nozzle tips are fitted on N1/N2, and do you swap them manually during a job (the TVM802 has no auto tool changer)?
+   - *Answered 2026-11-12:* no tip swaps. The two nozzles carry fixed tips: **N1 = thick**, **N2 = thin**, and only **one nozzle is used per part**: one component per trip, never two picked at once. So the job runner chooses N1 or N2 per part (by package or a per-part setting), with no dual-nozzle cycles. This replaces the "two-nozzle cycles" item in phase 7.
 8. **Panels (later):** single boards only, or panelized jobs too?
+   - *Answered 2026-11-12:* panels wanted. Plan for a job made of a board plus a panel layout (rows × columns with a step, or a list of board origins/rotations), and per-board skip ("bad board") support.
 
 ---
 
@@ -287,7 +292,7 @@ Built mostly by Haiku agents against [docs/phase2-design.md](docs/phase2-design.
 - `pnp/api/vision_routes.py` + UI: live MJPEG views with crosshair and click-to-move, and a 4-step Setup wizard. Review fix: calibration positions are only recorded after homing.
 - In the simulator the full wizard recovers every value to within one machine quantum (0.03 mm). 93 tests in total.
 
-**Real cameras:** both Microsoft 045e:0294 cameras streamed at first (≈4–7 fps at 960×720, auto-exposure), then stopped responding within minutes (STREAMON EIO / control timeouts) while still enumerated on USB. Both sit directly on USB 2.0 bus 1 (ports 3/4) with autosuspend on, alongside the Wi-Fi dongle. Isolation test after a replug: the **up camera `…11585848` streams at 29.9 fps alone at 640×480**, while the **head camera `…56215848` hangs on open even alone on the bus** and afterwards also knocks the up camera out until replugged. Port-swap test: the head camera streams fine on port 3, so the **fault was the PC's USB port 4 (or the cabling to it)**, not the camera. With the head camera on port 3 and the up camera on port 10, both stream together at about 15 fps (auto-exposure), with 0 stalls in 3 minutes. Avoid port 4. The real-machine UI shows both live views. The down view is rotated 270° (90° anticlockwise); the user confirmed X+ pans right and Y+ pans up. Camera hangs, root cause narrowed down (13:25): the hung capture threads sit in kernel state D in `usb_start_wait_urb`, meaning the camera never answers a USB control request. Both cameras have USB autosuspend on (2 s). Countermeasures: `config/udev/90-tvm802-cameras.rules` (turns autosuspend off, installed with sudo), opening only one camera at a time, a 3 s settle delay after plug-in, and never opening a device that another process holds (the Claude desktop app's capture service probes freshly plugged cameras). **Result (13:36):** with the rule installed (`power/control=on`), both cameras reconnected cleanly after a replug, one after the other, and kept streaming at about 15 fps. Camera roles re-verified by motion and LED tests: `…56215848` moves with the head and `…11585848` reacts to the up LEDs. **Open:** focusing the head camera and the down-camera calibration are postponed (no suitable PCB at hand; sharpness only about 27). Printed text or a sheet of paper with a few sharp dots also gives the scale calibration enough texture. Measured travel ends: X −115 mm and Y −77 mm. Soft limits are now X [−113, 299] and Y [−75, 350.5]. Next: check focus (the head view is a blur), then run the Setup wizard on the machine.
+**Real cameras:** both Microsoft 045e:0294 cameras streamed at first (≈4–7 fps at 960×720, auto-exposure), then stopped responding within minutes (STREAMON EIO / control timeouts) while still enumerated on USB. Both sit directly on USB 2.0 bus 1 (ports 3/4) with autosuspend on, alongside the Wi-Fi dongle. Isolation test after a replug: the **up camera `…11585848` streams at 29.9 fps alone at 640×480**, while the **head camera `…56215848` hangs on open even alone on the bus** and afterwards also knocks the up camera out until replugged. Port-swap test: the head camera streams fine on port 3, so the **fault was the PC's USB port 4 (or the cabling to it)**, not the camera. With the head camera on port 3 and the up camera on port 10, both stream together at about 15 fps (auto-exposure), with 0 stalls in 3 minutes. Avoid port 4. The real-machine UI shows both live views. The down view is rotated 270° (90° anticlockwise); the user confirmed X+ pans right and Y+ pans up. Camera hangs, root cause narrowed down (13:25): the hung capture threads sit in kernel state D in `usb_start_wait_urb`, meaning the camera never answers a USB control request. Both cameras have USB autosuspend on (2 s). Countermeasures: `config/udev/90-tvm802-cameras.rules` (turns autosuspend off, installed with sudo), opening only one camera at a time, a 3 s settle delay after plug-in, and never opening a device that another process holds (the Claude desktop app's capture service probes freshly plugged cameras). **Result (13:36):** with the rule installed (`power/control=on`), both cameras reconnected cleanly after a replug, one after the other, and kept streaming at about 15 fps. Camera roles re-verified by motion and LED tests: `…56215848` moves with the head and `…11585848` reacts to the up LEDs. **Open:** focusing the head camera and the down-camera calibration are postponed (no suitable PCB at hand; sharpness only about 27). Printed text or a sheet of paper with a few sharp dots also gives the scale calibration enough texture. Measured travel ends: X −115 mm and Y −77 mm. Soft limits are now X [−113, 299] and Y [−75, 350.5]. On 2026-11-13 the user widened the X minimum to −120 (the head travels further left than first measured). Next: check focus (the head view is a blur), then run the Setup wizard on the machine.
 
 ### Phase 3: done in the simulator (2026-11-12), not yet on the machine
 
@@ -303,6 +308,138 @@ Built by Haiku agents against [docs/phase3-design.md](docs/phase3-design.md), th
 - **Demo in the simulator through the UI:** strip F1 → N1 placed at the crosshair, and drag F2 → N2 (fed, picked, placed).
 
 **Before the first real pick:** focus and calibrate the down camera (scale and nozzle offsets), calibrate the prick offset, set `head.discard`, and measure the real pick and place depths (both are 3.0 mm for now).
+
+### Phase 4: done in the simulator (2026-11-12), not yet on the machine
+
+Built by Haiku agents against [docs/phase4-design.md](docs/phase4-design.md), then reviewed and fixed:
+- `pnp/job/banks.py`:
+  - Feeder banks: front and back stacks whose lanes are drag feeders tagged with `bank`/`lane`.
+  - Lanes are generated from an origin, lane and feed directions, and per-lane tape width and pitch. The needle point is placed at the sprocket holes using the EIA-481 offsets.
+  - Named layouts can be saved and loaded, so a swapped stack doesn't need re-teaching.
+- `pnp/job/rules.py`: package → nozzle rules (N1 thick, N2 thin, first match wins) with an optional place depth per package.
+- `pnp/job/kicad.py`: KiCad ASCII `.pos` and CSV import (mm or inches, values with spaces, BOM/CRLF).
+- `pnp/job/job.py`:
+  - Jobs with panels (grid or a free list of boards, bad boards skipped) and board → panel → world transforms.
+  - Board rotation is fitted from a second point.
+  - Feeder matching by value and package, with per-part nozzle, feeder and skip overrides, and a placement plan with a stated problem per part.
+- `pnp/job/runner.py`:
+  - One part at a time (pick and place under one head lock).
+  - Pause and stop take effect between parts.
+  - A failed pick is retried twice; drag lanes are re-fed before a retry. After that the part is marked failed and the job pauses.
+  - An empty lane pauses the job. A machine error goes to error.
+- API (`bank_routes.py`, `job_routes.py`):
+  - Endpoints for banks, layouts, package rules and the job.
+  - While a job runs, every change request except E-stop, E-stop reset and the job controls is refused with 409 (review fix: manual jog, outputs and calibration were not blocked).
+- UI:
+  - Job tab: import, board origin and rotation from the camera, panel grid, a parts table with overrides and Go to, and run controls with progress.
+  - Banks card on the Feeders tab.
+  - Nozzle rules card on the Setup tab.
+- Review fixes:
+  - Saving a bank lane in the feeder form no longer detaches it from its bank.
+  - Bottom-side parts report "Bottom side".
+- `--sim` seeds a back bank (8 × 8 mm, layout "Passives") and a front bank (4 × 12 mm, layout "ICs"), plus a 2-board demo panel from `examples/demo.pos`.
+- Demo through the UI: all 20 placements of the demo panel placed, 0 failed. 268 tests in total.
+
+**Before the first real job:**
+- Everything listed under phase 3.
+- Teach the real stack origins (Generate lanes → Use camera position) and check one lane's needle point by eye.
+- Measure the real place depth per package family.
+- Check the KiCad rotation convention against the tape orientation on a first board.
+
+### Phase 5: done in the simulator (2026-11-12), not yet on the machine
+
+Built by Haiku agents against [docs/phase5-design.md](docs/phase5-design.md), then reviewed and fixed:
+- `pnp/vision/fiducials.py`:
+  - Finds round pads of the expected diameter (size, circularity, not cut by the image border), nearest first.
+  - `locate_fiducial` centres on a pad in up to 3 moves.
+  - `fit_rigid` does a 2-D rotation and translation fit with a scale report and per-point residuals.
+  - Review fix: only bright *regions* count. Before, a dark hole in a bright area (a bed dot, a via) could pass as a fiducial.
+- `pnp/job/job.py`:
+  - KiCad parts named `FID*`, or with "fiducial" in the package, become job fiducials (bottom-side ones are dropped).
+  - Modes: off, panel (one fit for the whole panel, measured on the first and last board) or each board (one fit per board, in `board_fits`).
+  - Any manual change of origin, rotation or panel clears the fit.
+- `pnp/job/align.py`:
+  - Measures every fiducial from the user's rough origin, refining the prediction as points come in.
+  - Rejects a fit with RMS > 0.15 mm or scale error > 0.5 %, and records each fiducial's correction.
+- **Runner:** measures fiducials automatically before the first part when the job has fiducials and no fit.
+- **API:** `PUT /api/job/fiducials`, `POST /api/job/fiducials/measure|clear`, `POST /api/job/fiducials/{name}/goto`.
+- **Fiducials card on the Job tab:** mode, diameter, editable list with Go to, Measure, and a result showing RMS, rotation, scale and per-point correction.
+- **Simulator:**
+  - The down camera now draws a realistic board (mask, fiducials, part pads) at a *true* position 0.35/−0.25 mm and 0.4° off the job's nominal origin, so the tests prove the correction.
+  - Review fix: board drawing shifted by 0.5 px to match the measuring pixel convention.
+  - `examples/demo.pos` gained FID1–FID3.
+- **Results in the simulator:**
+  - Panel fit: origin within 0.001 mm and rotation within 0.001°, RMS 0.002 mm.
+  - With alignment, every placement lands within 0.06 mm of the true pad. Without it, placements are off by about 0.4 mm.
+  - 326 tests in total.
+
+**Before using fiducials on the machine:**
+- Check the real fiducial contrast (copper on mask) and set the diameter.
+- Check that the down camera is calibrated and in focus.
+- Run Measure fiducials once by hand before trusting the automatic step.
+
+### Phase 6: done in the simulator (2026-11-12), not yet on the machine
+
+Built by Haiku agents against [docs/phase6-design.md](docs/phase6-design.md), then reviewed and fixed:
+- `pnp/vision/bottom.py`: measures the part on the nozzle from an up-camera frame.
+  - Bright regions within 6 mm of the axis are merged into one outline (body + leads), at sub-pixel precision via 4× upsampling, and fitted in mm (so mirroring and non-square pixels are handled).
+  - It reports the offset from the nozzle axis, the long-side angle and the size.
+  - A lone round blob no bigger than the tip counts as no part.
+- `VisionConfig` (`vision:` in `machine.yaml`): on/off, LEDs, settle time, threshold, search radius, tip diameters (N1 0.8 / N2 0.4 mm), size tolerance (30 %), max offset (1 mm), max angle (15°).
+- **Package rules** gain `body` (length × width as seen from below) and `vision`. Defaults: 0201 to 2512, SOT-23 and SOIC-8.
+- **HeadOps:**
+  - After each pick, the nozzle goes over the up camera and the part is measured.
+  - A missing part, wrong size, too far off-centre or too much turned is discarded, then `PickError`, so the runner retries (and re-feeds drag lanes).
+  - The place move corrects the angle (`rotation − tape − error`) and the position: the tip goes to `W − rot(φ) · offset`, using the angle the controller actually reached.
+  - `POST /api/head/inspect` runs a manual inspection.
+  - The last inspection per nozzle is shown on the Feeders tab and the Job run card.
+- **Simulator:**
+  - Each pick gets a random offset (≤ 0.3 mm) and turn (≤ 4°). The up camera draws the part, and the true landing position is recorded.
+  - Review fix: a tip under a part draws dark, so an edge sticking out doesn't merge into the part outline.
+- **Review fixes:**
+  - The rules API dropped `body`/`vision` on save.
+  - `inspect_nozzle` called `machine.state()`, but `state` is a property, so every real inspection would have crashed (the agent had added an adapter; fixed at the source instead).
+- **Results in the simulator:**
+  - With vision, true part centres land within 0.05 mm and 0.5° of target, also at 37° and 90° placement rotations. Without it, they are off by up to 0.3 mm and 4°.
+  - The demo panel: 20/20 placed, 0 failed.
+  - 382 tests in total.
+
+**Before using bottom vision on the machine:**
+- Check the A-axis direction: positive must turn the part CCW seen from above (the correction relies on it).
+- Check the up-camera exposure with the LEDs on, so parts are bright against the background.
+- Check the nozzle faces read darker than the parts. If not, set `vision.min_brightness`.
+- Measure the real tip diameters.
+- Check the body sizes of your common packages with Inspect part.
+
+### Real-machine session 2026-11-13
+
+- **Linux env:** `.venv` is now a Windows venv. Linux uses `.venv-linux` (launch configs `tvm-pnp-sim-linux` / `tvm-pnp-machine-linux`).
+- **Camera power-saving:** after a reboot, power-saving was back on for the up camera. `sudo udevadm trigger --action=add --subsystem-match=usb --attr-match=idVendor=045e` re-applies the rule.
+- **Down-camera calibration fix:** the head's red glow (fixed in the image) captured the template match (fit residual 17.4 px). `measure_shift` now high-pass filters both images first (0.21 px on the real frames, kept as a regression test in `tests/data/down_glow`). Calibrated on the machine: **0.0236 mm/px**, residual 0.70 px.
+- **UI fixes:**
+  - Request errors no longer get hidden by the next live-state update.
+  - UI files are served with `Cache-Control: no-cache`, so the browser can't keep a stale `app.js`.
+- **Reconnect:**
+  - A powered-off controller leaves a dead TCP connection. After 3 unanswered state requests the transport now drops it and reconnects by itself.
+  - A **Connect** button in the header forces a reconnect (`POST /api/machine/reconnect`). The badge tooltip shows `link_error`.
+- **Auto-centre fix:** local (adaptive) threshold, round marks 0.3–4 mm only, at most 2 mm per correction, and a stop if the mark doesn't follow the head (the old version locked onto the glow-bounded dark area and drove away).
+- **Needle interlock:** X/Y moves and homing are refused while the feeder needle is down (HTTP 409). Exceptions: the drag during a feed (`needle_moves_allowed`) and the Setup needle step (`POST /api/calibrate/needle`; raising the needle ends it). The Machine-tab output toggle does not allow moves.
+- **Vacuum outputs swapped** (checked on the machine): nozzle 1 vacuum is bit `0x2000` and nozzle 2 is `0x0004`, the reverse of the Node bridge. Blow-off and the vacuum sensors were already correct.
+- **Vacuum held until place:** `head.check_vacuum` now defaults to off, because the real sensor didn't report held parts and good picks got dropped. Vacuum stays on from pick until place, discard or E-stop. An error during a pick keeps the vacuum on, lifts the nozzle and marks it as holding. Bottom-vision rejections still discard.
+- **Feeder export/import:** the Feeders tab has **Export** (one YAML file with all feeders, banks and bank layouts; `GET /api/feeders/export`) and **Import…** (`POST /api/feeders/import`), with Replace (default) or Merge by id, and Reset part counts (default on). The whole file is checked before anything changes (`pnp/job/feeder_config.py`).
+- **Two-point board alignment** (replaces Set origin from camera / Align rotation on part): on the Job tab's Board card, set Point 1 (the origin, board 0,0 by default) and Point 2, each with a board position and a machine position (Capture camera fills it in; editable), (a part's centre, or custom board X/Y such as a mounting hole), then Set board from points 1 and 2. It sets origin and rotation together and reports the A–B distance check. The points are saved with the job (`references`, `reference_board`); `POST /api/job/align/two-points`, `fit_two_points` in job.py. The old endpoints still exist.
+- **Pinned camera strip:** the down and up views (status, crosshair, click-to-move, Up LEDs) live in the sticky top bar and stay visible on every tab while the page scrolls under them. The per-tab camera views (Machine card, Setup steps, Feeders card) are removed. Each view has a fixed height with its width from the camera's aspect, so clicks map 1:1 to camera pixels.
+- **No native browser dialogs:** the Claude browser pane suppresses `confirm()` (it silently returns false), which made the feeder import do nothing. All confirmations use the in-page `askConfirm()` dialog; don't use `alert`/`confirm`/`prompt` in the UI.
+- **Needle-stuck alarm:** if the needle sensor still reads down after the needle is switched up, the buzzer sounds and a popup offers Silence, Clear and continue (resumes the waiting feed, pick or job once the sensor reads up) and Abort. E-stop ends it too. Endpoints `/api/alarm/clear|silence|abort` stay allowed during a job.
+- **Cameras:** the head camera hung again once on reopening after a restart (even with power-saving off); a replug fixed it. A hung camera now holds the one-at-a-time open turn for at most 10 s (`OPEN_TURN_TIMEOUT`), so it can't block the other camera forever.
+- **Homing robustness:** homing sometimes stuck on the Y Top switch, then worked when run again. The suspected cause is that right after a stop (or the switch stopping the axis) the controller acknowledges but ignores the next move. Each homing move now waits for the axis to be at rest, checks that the move really starts (position changes within 0.6 s), and resends up to 3 times; failures are logged. The simulator models the behaviour (`move_ignored_after_stop`).
+- **Needle position sensor** (found 2026-11-13 with `GET /api/debug/raw`): state byte 10 bit `0x08` is set when the needle is UP and clear when it is DOWN. It is a physical sensor: it lags the command by the needle's travel time (41 ms down and 62 ms up on the machine). Switching the needle now waits for it (`head.needle_timeout`, 1 s). A needle that doesn't go down is switched off again and nothing is dragged; a needle stuck down stops the feed, and the move interlock trusts the sensor, so nothing moves until it is freed. There is a Needle light on the Machine tab.
+- **Z (seesaw):** 0 = both nozzle tips level. N1 goes down on +Z and N2 on −Z. There is no home switch, so a nozzle driven past its end makes the motor skip steps and the zero drifts. The **Set Z zero here** button on the Machine tab (`POST /api/machine/zero-z`) re-zeroes without moving. Measured lowest point: **9.5 mm per nozzle** (`z1_max`/`z2_max`).
+- **Feeders tab Place target:** X/Y/rotation/depth fields for Place and Pick and place (empty X/Y = crosshair), plus Use crosshair and Go to target.
+- **Per-part vision:** the Job parts table has a Vision column (Auto = package rule / On / Off), stored per part reference (`JobPart.vision`). Old job files load as Auto.
+- **Defaults tab:** every value in `config/machine.yaml` (head, vision, limits, motion; homing, steps, controller and motion internals in a collapsed Advanced section with a warning) with a label, help text and the built-in default. Save writes only the changed values into machine.yaml with ruamel.yaml (comments kept; new dependency `ruamel.yaml`) and applies them in place at once (`pnp/config_editor.py`, `GET/PUT /api/config/defaults`). Controller IP/port need a restart. New `head.pick_depth` (3 mm) is the pick depth for new feeders and bank lanes. In `--sim` mode the tab saves to a temporary copy, never the real machine.yaml.
+- **Calibration status:** down scale ✅, nozzle 2 offset ✅ (−24.38, −49.16). Still to do: nozzle 1, prick, up camera, depths, discard bin, feeders.
+- **Tests:** 388. One intermittent failure was seen once in a full run and not reproduced in two more runs.
 
 ## 6. First concrete steps (original)
 

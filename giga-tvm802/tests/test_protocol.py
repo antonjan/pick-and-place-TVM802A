@@ -24,8 +24,9 @@ def h(s: str) -> bytes:
         (False, Output.PUMP_BOTH, "15 00 00 00 08 04 00 00"),
         (True, Output.BLOW1, "14 00 00 00 02 00 00 00"),
         (True, Output.BLOW2, "14 00 00 00 00 10 00 00"),
-        (True, Output.VACUUM1, "14 00 00 00 04 00 00 00"),
-        (True, Output.VACUUM2, "14 00 00 00 00 20 00 00"),
+        # swapped vs the Node bridge: checked on the real machine 2026-11-13
+        (True, Output.VACUUM1, "14 00 00 00 00 20 00 00"),
+        (True, Output.VACUUM2, "14 00 00 00 04 00 00 00"),
         (True, Output.LEDS, "14 00 00 00 00 02 00 00"),
     ],
 )
@@ -144,3 +145,16 @@ class TestReassembler:
         r = p.FrameReassembler({0x00: 44, 0x01: 4})
         frames = r.feed(b"\x01abc" + self.state)
         assert [f.type for f in frames] == [0x01, 0x00]
+
+
+def test_needle_sensor_bit_real_frames():
+    """Byte 10 bit 0x08 = needle UP (captured on the real machine 2026-11-13)."""
+    up = bytes.fromhex("00000000c0030000f0ffff03" + "00" * 32)
+    down = bytes.fromhex("00000000c0430000f0fff703" + "00" * 32)
+    assert p.decode_state(up).needle_up is True
+    assert p.decode_state(down).needle_up is False
+    # pressure2 shares byte 10 and must be unaffected
+    assert p.decode_state(down).pressure2 is False
+    frame = p.encode_state(0, {}, needle_up=False, pressure2=True)
+    s = p.decode_state(frame)
+    assert s.needle_up is False and s.pressure2 is True

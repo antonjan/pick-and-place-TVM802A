@@ -1,0 +1,5 @@
+banks:
+- id: left
+  name: left-stack
+  active_layout: null
+  layouts: {}

@@ -23,8 +23,9 @@ T1 = SIM_NOZZLE_OFFSETS[1]
 
 
 @contextlib.contextmanager
-def start_app(tmp_path, sim_cfg=None):
+def start_app(tmp_path, sim_cfg=None, check_vacuum=False):
     cfg = MachineConfig()
+    cfg.head.check_vacuum = check_vacuum
     cfg.controller.poll_interval_idle = 0.05
     cfg.controller.poll_interval_moving = 0.01
     cfg.head.discard = (20.0, 20.0)
@@ -204,7 +205,7 @@ def test_prick_offset_from_camera_mark(env):
 
 
 def test_failed_pick_is_422_and_keeps_count(tmp_path):
-    with start_app(tmp_path, sim_cfg=SimConfig(pick_success=False)) as e:
+    with start_app(tmp_path, sim_cfg=SimConfig(pick_success=False), check_vacuum=True) as e:
         c = e.client
         assert c.post("/api/home").status_code == 200
         r = c.put("/api/feeders/F1", json={"kind": "strip", "pick": [60, 40], "pitch": 4.0,
@@ -216,3 +217,78 @@ def test_failed_pick_is_422_and_keeps_count(tmp_path):
         assert c.get("/api/head").json()["holding"]["1"] is None
         assert c.post("/api/feeders/NOPE/pick", json={"nozzle": 1}).status_code == 404
         assert c.post("/api/feeders/F1/pick", json={"nozzle": 5}).status_code == 400
+
+
+def test_head_inspect_needs_an_up_camera(tmp_path):
+    """No cameras in this app: no inspector, so picks are recorded as skipped and inspect is a 409."""
+    with start_app(tmp_path) as e:
+        c = e.client
+        assert c.post("/api/head/inspect", json={"nozzle": 1}).status_code == 409  # not homed yet
+        assert c.post("/api/home").status_code == 200
+        assert c.post("/api/head/inspect", json={"nozzle": 1}).status_code == 409
+        assert c.post("/api/head/inspect", json={"nozzle": 7}).status_code == 400
+        head = c.get("/api/head").json()
+        assert set(head["last_inspection"]) == {"1", "2"}
+        assert head["last_inspection"]["1"] is None and head["last_inspection"]["2"] is None
+
+
+def test_pick_and_place_at_entered_coordinates(env):
+    """Feeders tab 'Place target': explicit X/Y/rotation instead of the crosshair."""
+    c = env.client
+    move_head(env, 60.0, 60.0)  # crosshair elsewhere: must be ignored
+    r = c.post("/api/feeders/F1/pick-and-place", json={"nozzle": 1, "x": 130.0, "y": 95.0, "rotation": 90.0})
+    assert r.status_code == 200, r.text
+    release = [e for e in env.sim.machine.events if e[0] == "release" and e[1] == 1][-1]
+    tip = (release[2] + SIM_NOZZLE_OFFSETS[1][0], release[3] + SIM_NOZZLE_OFFSETS[1][1])
+    # bottom vision may shift the head by the measured pick offset (<= 0.3 mm in the sim)
+    assert abs(tip[0] - 130.0) < 0.5 and abs(tip[1] - 95.0) < 0.5
+    a1 = c.get("/api/state").json()["position"]["a1"]
+    assert abs(((a1 - 90.0) + 180) % 360 - 180) < 5.0  # 90 deg, minus the corrected pick error
+
+    # Coordinates the nozzle can't reach are refused before anything is picked.
+    before = feeder(env, "F1")["count"]
+    r = c.post("/api/feeders/F1/pick-and-place", json={"nozzle": 1, "x": 400.0, "y": 95.0})
+    assert r.status_code == 400 and "out of reach" in r.json()["detail"]
+    assert feeder(env, "F1")["count"] == before
+
+
+def test_manual_pick_vision_switch(env):
+    """Feeders tab 'Vision check' off: the part is not inspected on the up camera."""
+    c = env.client
+    assert c.post("/api/home").status_code == 200
+    r = c.put("/api/feeders/FV", json={"kind": "strip", "pick": [60, 40], "pitch": 4.0, "capacity": 20})
+    assert r.status_code == 200, r.text
+    r = c.post("/api/feeders/FV/pick", json={"nozzle": 1, "vision": False})
+    assert r.status_code == 200, r.text
+    last = c.get("/api/head").json()["last_inspection"]["1"]
+    assert last is not None and last["result"] == "skipped" and "vision off" in last["message"]
+    assert c.post("/api/head/place", json={"nozzle": 1}).status_code == 200
+    # default (switch on): vision is requested; this test app has no cameras, so it is
+    # skipped for that reason instead - not because vision was switched off
+    r = c.post("/api/feeders/FV/pick", json={"nozzle": 1})
+    assert r.status_code == 200, r.text
+    assert "vision off" not in c.get("/api/head").json()["last_inspection"]["1"]["message"]
+    assert c.post("/api/head/place", json={"nozzle": 1}).status_code == 200
+
+
+def test_export_and_import_endpoints(tmp_path):
+    with start_app(tmp_path) as e:
+        c = e.client
+        assert c.put("/api/feeders/X1", json={"kind": "strip", "pick": [60, 40], "pitch": 4.0,
+                                              "value": "1k", "count": 3}).status_code == 200
+        r = c.get("/api/feeders/export")
+        assert r.status_code == 200
+        assert r.headers["content-disposition"].startswith('attachment; filename="feeders-')
+        exported = r.text
+        assert "tvm802-feeders" in exported and "X1" in exported
+
+        assert c.delete("/api/feeders/X1").status_code == 200
+        assert all(f["id"] != "X1" for f in c.get("/api/feeders").json())
+
+        r = c.post("/api/feeders/import", json={"content": exported, "mode": "merge", "reset_counts": True})
+        assert r.status_code == 200, r.text
+        x1 = next(f for f in c.get("/api/feeders").json() if f["id"] == "X1")
+        assert x1["value"] == "1k" and x1["count"] == 0
+
+        r = c.post("/api/feeders/import", json={"content": "not: a feeder file"})
+        assert r.status_code == 400 and "not a feeder configuration" in r.json()["detail"]

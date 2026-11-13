@@ -63,7 +63,9 @@ class Output(IntFlag):
     """Output bits. Bit 0-7 = wire byte 4, bit 8-15 = wire byte 5, etc."""
 
     BLOW1 = 0x0002
-    VACUUM1 = 0x0004
+    # Vacuum bits as wired on the real machine (checked 2026-11-13): 0x2000 is
+    # nozzle 1 and 0x0004 nozzle 2. The Node bridge had them the other way round.
+    VACUUM1 = 0x2000
     PUMP = 0x0008
     PUMP_AUX = 0x0400  # always switched together with PUMP by the vendor sw
     FAST_MODE = 0x0080
@@ -71,7 +73,7 @@ class Output(IntFlag):
     LEDS = 0x0200  # up-camera ring light
     BUZZER = 0x0800
     BLOW2 = 0x1000
-    VACUUM2 = 0x2000
+    VACUUM2 = 0x0004
     PRICK = 0x4000  # feeder needle
 
     PUMP_BOTH = PUMP | PUMP_AUX
@@ -88,6 +90,11 @@ class Input(IntFlag):
 
 
 NO_PRESSURE_2 = 0x10  # bit in state-reply byte 10
+# Feeder needle position sensor, state-reply byte 10: set = needle UP, clear = needle
+# DOWN. Found on the real machine 2026-11-13: it follows the needle's physical
+# position (lags the prick output by the needle's travel time), so it can catch a
+# needle that did not go down or is stuck down.
+NEEDLE_UP = 0x08
 
 STATE_REPLY_LEN = 44
 MOVE_FRAME_LEN = 28
@@ -242,6 +249,7 @@ class MachineState:
     pressure1: bool  # True = vacuum detected on nozzle 1
     pressure2: bool
     positions: dict[Axis, int] = field(default_factory=dict)
+    needle_up: bool = True  # feeder needle sensor (byte 10 bit 0x08)
     raw: bytes = b""
 
     @property
@@ -279,6 +287,7 @@ def decode_state(frame: bytes) -> MachineState:
         pressure1=not (frame[8] & Input.NO_PRESSURE_1),
         pressure2=not (frame[10] & NO_PRESSURE_2),
         positions=positions,
+        needle_up=bool(frame[10] & NEEDLE_UP),
         raw=bytes(frame),
     )
 
@@ -289,12 +298,13 @@ def encode_state(
     limits: int = 0,
     pressure1: bool = False,
     pressure2: bool = False,
+    needle_up: bool = True,
 ) -> bytes:
     """Build a state reply (used by the simulator and tests)."""
     frame = bytearray(STATE_REPLY_LEN)
     struct.pack_into("<I", frame, 4, outputs & 0xFFFFFFFF)
     frame[8] = (limits & 0x0F) | (0 if pressure1 else Input.NO_PRESSURE_1)
-    frame[10] = 0 if pressure2 else NO_PRESSURE_2
+    frame[10] = (0 if pressure2 else NO_PRESSURE_2) | (NEEDLE_UP if needle_up else 0)
     for axis, off in STATE_POS_OFFSET.items():
         struct.pack_into("<i", frame, off, _check_int32(positions.get(axis, 0)))
     return bytes(frame)

@@ -36,6 +36,7 @@ SETTLE_DELAY = 3.0  # s to wait after a device node (re)appears before opening i
 # Only one UVC camera is opened at a time (across all cameras in this process):
 # every hang seen on the TVM802's cameras happened while both were starting at once.
 _OPEN_LOCK = threading.Lock()
+OPEN_TURN_TIMEOUT = 10.0  # s a camera waits for its turn to open before going ahead
 
 
 def device_holders(device: str) -> list[int]:
@@ -292,11 +293,21 @@ class UvcCamera(Camera):
             self._missing = False
             if self._stop_evt.wait(SETTLE_DELAY):
                 raise CameraError("stopping")
-        with _OPEN_LOCK:
+        # One camera at a time - but a camera hung inside open() (a kernel wait that
+        # only a replug ends) must not keep the other camera from ever opening, so
+        # wait at most OPEN_TURN_TIMEOUT for the turn and then go ahead anyway.
+        got_turn = _OPEN_LOCK.acquire(timeout=OPEN_TURN_TIMEOUT)
+        if not got_turn:
+            log.warning("camera %s: another camera has been opening for %.0f s (hung?); opening anyway",
+                        self.name, OPEN_TURN_TIMEOUT)
+        try:
             holders = device_holders(self.cfg.device)
             if holders:
                 raise CameraError(f"{self.cfg.device} is in use by process {', '.join(map(str, holders))}")
             return self._open_locked()
+        finally:
+            if got_turn:
+                _OPEN_LOCK.release()
 
     def _open_locked(self) -> tuple[cv2.VideoCapture, np.ndarray]:
         self._apply_controls()

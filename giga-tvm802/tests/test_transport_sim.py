@@ -209,3 +209,54 @@ def test_simulator_drops_bursts_like_real_controller():
             await sim.stop()
 
     run(body())
+
+
+def test_silent_controller_is_detected_and_reconnected():
+    """Power cycle: the controller stops answering without closing the socket.
+    The transport must notice, drop the dead link and connect again by itself."""
+    async def body():
+        sim, t = await setup()
+        events = []
+        t.on_connection(events.append)
+        try:
+            sim.mute = True  # "power off"
+            for _ in range(100):
+                if not t.connected.is_set():
+                    break
+                await asyncio.sleep(0.05)
+            assert not t.connected.is_set(), "dead link not detected"
+            assert "stopped answering" in (t.last_error or "")
+            sim.mute = False  # "power back on"
+            await t.wait_connected(5)
+            await t.request_state()
+            assert events[:2] == [False, True]
+            assert t.last_error is None
+        finally:
+            await t.stop()
+            await sim.stop()
+
+    run(body())
+
+
+def test_reconnect_drops_link_and_connects_now():
+    async def body():
+        sim, t = await setup()
+        t.reconnect_delay = 30  # prove reconnect() does not wait for the retry delay
+        events = []
+        t.on_connection(events.append)
+        try:
+            inits_before = sim.machine.commands.count(p.INIT_SEQUENCE[0])
+            await t.reconnect()
+            await asyncio.wait_for(t.wait_connected(), 5)
+            for _ in range(50):
+                if events[:2] == [False, True]:
+                    break
+                await asyncio.sleep(0.05)
+            assert events[:2] == [False, True]
+            await t.request_state()
+            assert sim.machine.commands.count(p.INIT_SEQUENCE[0]) == inits_before + 1
+        finally:
+            await t.stop()
+            await sim.stop()
+
+    run(body())

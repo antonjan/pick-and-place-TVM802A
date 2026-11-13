@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from fastapi import HTTPException
 
-from pnp.machine.machine import EStopped, MachineError, NotHomed, NotReady, SoftLimitError
+from pnp.machine.machine import (EStopped, MachineError, NeedleDown, NeedleError, NotHomed, NotReady,
+                                 SoftLimitError)
 
 def status_for(exc: MachineError) -> int:
     if isinstance(exc, (SoftLimitError,)):
         return 400
-    if isinstance(exc, (NotReady, NotHomed, EStopped)):
+    if isinstance(exc, (NotReady, NotHomed, EStopped, NeedleDown, NeedleError)):
         return 409
     from pnp.job.head_ops import HeadConflict, NotCalibrated  # late import: avoids a cycle
 

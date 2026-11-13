@@ -3,7 +3,7 @@ name = "tvm802-pnp"
 version = "0.1.0"
 description = "Standalone pick-and-place control software for the TVM802"
 requires-python = ">=3.11"
-dependencies = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "pyyaml>=6", "numpy>=1.26", "opencv-python-headless>=4.9"]
+dependencies = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "pyyaml>=6", "ruamel.yaml>=0.18", "numpy>=1.26", "opencv-python-headless>=4.9"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "httpx>=0.27"]
@@ -21,7 +21,8 @@ build-backend = "setuptools.build_meta"
 include = ["pnp*"]
 
 [tool.setuptools.package-data]
-"pnp.web" = ["*.html", "*.js", "*.css"]
+# The sim's demo job reads examples/demo.pos from the source tree (not packaged).
+"pnp.web" = ["*.html", "*.js", "*.css", "*.svg", "*.png", "fonts/*.woff2"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -165,3 +165,72 @@ def test_old_calibration_file_has_no_prick_offset(tmp_path):
     assert cal.prick_offset is None
     assert cal.nozzle_offset[1] == (-42.0, -3.0)
     assert Calibration().prick_offset is None
+
+
+def drag(id: str, bank: str = "", lane: int | None = None, **kw) -> Feeder:
+    base = dict(id=id, kind="drag", pick=(10.0, 20.0), prick=(5.0, 20.0), bank=bank, lane=lane)
+    base.update(kw)
+    return Feeder(**base)
+
+
+def test_bank_fields_round_trip(tmp_path):
+    path = tmp_path / "f.yaml"
+    FeederStore(path).upsert(drag("back-1", bank="back", lane=1, value="10k"))
+    f = FeederStore(path).get("back-1")
+    assert f.bank == "back" and f.lane == 1 and f.value == "10k"
+    assert FeederStore(path).get("back-1").bank == "back"
+
+
+def test_by_bank_orders_by_lane_then_id(tmp_path):
+    store = FeederStore(tmp_path / "f.yaml")
+    store.upsert(drag("loose"))
+    store.upsert(drag("b-3", bank="b", lane=3))
+    store.upsert(drag("b-x", bank="b"))  # no lane number: last
+    store.upsert(drag("b-1", bank="b", lane=1))
+    store.upsert(drag("other-1", bank="other", lane=1))
+    assert [f.id for f in store.by_bank("b")] == ["b-1", "b-3", "b-x"]
+    assert store.by_bank("missing") == []
+
+
+def test_replace_bank_swaps_only_that_bank(tmp_path):
+    path = tmp_path / "f.yaml"
+    store = FeederStore(path)
+    store.upsert(drag("loose"))
+    store.upsert(drag("b-1", bank="b", lane=1))
+    store.upsert(drag("b-2", bank="b", lane=2))
+    store.upsert(drag("o-1", bank="o", lane=1))
+    store.replace_bank("b", [drag("b-1", bank="b", lane=1, value="new"), drag("b-9", bank="b", lane=9)])
+    again = FeederStore(path)
+    assert sorted(f.id for f in again.all()) == ["b-1", "b-9", "loose", "o-1"]
+    assert again.get("b-1").value == "new"
+
+
+def test_replace_bank_clash_raises_and_changes_nothing(tmp_path):
+    path = tmp_path / "f.yaml"
+    store = FeederStore(path)
+    store.upsert(drag("a-1", bank="a", lane=1, value="keep"))
+    store.upsert(drag("b-1", bank="b", lane=1))
+    before = yaml.safe_load(path.read_text())
+    with pytest.raises(ValueError):
+        store.replace_bank("b", [drag("b-2", bank="b", lane=2), drag("a-1", bank="b", lane=1)])
+    assert yaml.safe_load(path.read_text()) == before
+    assert [f.id for f in store.by_bank("b")] == ["b-1"]
+    assert store.get("a-1").value == "keep"
+
+
+def test_replace_bank_rejects_wrong_bank_and_duplicates(tmp_path):
+    store = FeederStore(tmp_path / "f.yaml")
+    with pytest.raises(ValueError, match="bank"):
+        store.replace_bank("b", [drag("x", bank="c", lane=1)])
+    with pytest.raises(ValueError, match="duplicate"):
+        store.replace_bank("b", [drag("x", bank="b", lane=1), drag("x", bank="b", lane=2)])
+    assert store.all() == []
+
+
+def test_delete_bank_keeps_other_feeders(tmp_path):
+    path = tmp_path / "f.yaml"
+    store = FeederStore(path)
+    store.upsert(drag("loose"))
+    store.upsert(drag("b-1", bank="b", lane=1))
+    store.delete_bank("b")
+    assert [f.id for f in FeederStore(path).all()] == ["loose"]

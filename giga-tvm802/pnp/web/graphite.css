@@ -1,0 +1,182 @@
+/*
+ * Graphite 1.0.0, CSS mirror of assets/tokens.json for web and desktop webviews.
+ * This file is the only place in the app's CSS that holds raw colours, font sizes,
+ * radii and durations. Do not edit a value here without changing tokens.json first.
+ */
+
+/* Dark is the primary theme. It is the default, and it is forced by data-theme="dark". */
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --canvas: #0e0f11;
+  --surface: #17181b;
+  --raised: #1d1f23;
+  --hover: #23252a;
+  --pressed: #2a2d33;
+  --border-subtle: #26282d;
+  --border: #33363c;
+  --border-strong: #474b53;
+  --text: #e6e7ea;
+  --text-secondary: #a0a3ab;
+  --text-muted: #8b8e96;
+  --text-disabled: #6c6f77;
+  --accent: #7b89ff;
+  --accent-fill: #4f5ef5;
+  --accent-fill-hover: #5b6cff;
+  --accent-fill-pressed: #4452db;
+  --accent-subtle: #1b1f3d;
+  --on-accent: #ffffff;
+  --success: #3fb97a;
+  --success-subtle: #12281d;
+  --warning: #e5a63b;
+  --warning-subtle: #2c2210;
+  --danger: #f0566a;
+  --danger-fill: #d0364b;
+  --danger-subtle: #30141a;
+  --on-danger: #ffffff;
+  --scrim: #00000099;
+  --shadow-popover: 0 8px 24px #00000066;
+}
+
+/* Light follows the OS unless the user chose Dark. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+
+    --canvas: #fafafb;
+    --surface: #ffffff;
+    --raised: #ffffff;
+    --hover: #f0f1f3;
+    --pressed: #e6e7ea;
+    --border-subtle: #e6e7ea;
+    --border: #d5d7dc;
+    --border-strong: #b4b7be;
+    --text: #17181b;
+    --text-secondary: #50535b;
+    --text-muted: #6c6f77;
+    --text-disabled: #878b93;
+    --accent: #4352e0;
+    --accent-fill: #4f5ef5;
+    --accent-fill-hover: #4452db;
+    --accent-fill-pressed: #3a46c2;
+    --accent-subtle: #eceeff;
+    --on-accent: #ffffff;
+    --success: #17753f;
+    --success-subtle: #e6f5ec;
+    --warning: #946200;
+    --warning-subtle: #fbf1dc;
+    --danger: #bc283e;
+    --danger-fill: #d0364b;
+    --danger-subtle: #fce9ec;
+    --on-danger: #ffffff;
+    --scrim: #00000066;
+    --shadow-popover: 0 8px 24px #17181b29;
+  }
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --canvas: #fafafb;
+  --surface: #ffffff;
+  --raised: #ffffff;
+  --hover: #f0f1f3;
+  --pressed: #e6e7ea;
+  --border-subtle: #e6e7ea;
+  --border: #d5d7dc;
+  --border-strong: #b4b7be;
+  --text: #17181b;
+  --text-secondary: #50535b;
+  --text-muted: #6c6f77;
+  --text-disabled: #878b93;
+  --accent: #4352e0;
+  --accent-fill: #4f5ef5;
+  --accent-fill-hover: #4452db;
+  --accent-fill-pressed: #3a46c2;
+  --accent-subtle: #eceeff;
+  --on-accent: #ffffff;
+  --success: #17753f;
+  --success-subtle: #e6f5ec;
+  --warning: #946200;
+  --warning-subtle: #fbf1dc;
+  --danger: #bc283e;
+  --danger-fill: #d0364b;
+  --danger-subtle: #fce9ec;
+  --on-danger: #ffffff;
+  --scrim: #00000066;
+  --shadow-popover: 0 8px 24px #17181b29;
+}
+
+:root {
+  /* Type */
+  --font-sans: "Inter", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+  --weight-semibold: 600;
+
+  --type-display: 600 24px/32px var(--font-sans);
+  --type-title: 600 18px/26px var(--font-sans);
+  --type-heading: 600 15px/22px var(--font-sans);
+  --type-body: 400 13px/20px var(--font-sans);
+  --type-label: 500 13px/20px var(--font-sans);
+  --type-small: 400 12px/16px var(--font-sans);
+  --type-caption: 500 11px/16px var(--font-sans);
+  --type-mono: 400 12px/18px var(--font-mono);
+
+  /* Spacing: nothing between these steps */
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 8px;
+  --space-4: 12px;
+  --space-5: 16px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 48px;
+
+  /* Radius */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-full: 999px;
+
+  /* Sizes */
+  --control-h: 28px;
+  --control-h-sm: 24px;
+  --control-h-lg: 32px;
+  --control-pad-x: 10px;
+  --icon: 16px;
+  --row-h: 32px;
+  --sidebar-w: 220px;
+  --toolbar-h: 40px;
+  --page-pad: 16px;
+  --content-max: 960px;
+  --dialog-w: 420px;
+
+  /* Motion */
+  --motion-fast: 120ms;
+  --motion-base: 180ms;
+  --motion-slow: 260ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+html,
+body {
+  font: var(--type-body);
+  background: var(--canvas);
+  color: var(--text);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

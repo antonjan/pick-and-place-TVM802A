@@ -74,6 +74,14 @@ class EStopped(MachineError):
     pass
 
 
+class NeedleDown(MachineError):
+    """X/Y motion refused because the feeder needle (prick) is down."""
+
+
+class NeedleError(MachineError):
+    """The needle sensor did not confirm a switch: jammed up or stuck down."""
+
+
 class HomingFailed(MachineError):
     pass
 
@@ -87,6 +95,19 @@ class Machine:
         )
         self.t.poll_interval = c.poll_interval_idle
         self.homed = False
+        # Feeder needle interlock: X/Y moves are refused while the needle is down,
+        # except while feeding (needle_moves_allowed) or in the Setup needle step
+        # (needle_setup). _needle_cmd is what we last commanded (None = unknown,
+        # then the controller's reported output bit decides).
+        self._needle_cmd: bool | None = None
+        self.needle_setup = False
+        self._needle_allow = 0
+        # Active alarm shown as a popup in the UI (None = no alarm). While the
+        # needle-stuck alarm is up, the operation that raised the needle waits for
+        # the user: Clear (continue once the sensor reads up), Abort, or E-stop.
+        self.alarm: dict | None = None
+        self._alarm_event = asyncio.Event()
+        self._alarm_action: str | None = None
         self._stopping = False
         self.estopped = False
         self.busy: str | None = None  # "moving" / "homing" / None
@@ -122,6 +143,9 @@ class Machine:
             cb(snap)
 
     def _on_connection(self, up: bool) -> None:
+        self._needle_cmd = None  # unknown again: trust the controller's report
+        if not up:
+            self.needle_setup = False
         if not up and self.homed and not self._stopping:
             # The controller may have reset; positions can no longer be trusted.
             log.warning("connection lost: machine marked as not homed")
@@ -160,7 +184,13 @@ class Machine:
         s = self.t.state
         return {
             "connected": self.connected,
+            "link_error": None if self.connected else self.t.last_error,
             "homed": self.homed,
+            "needle_down": self.needle_is_down(),
+            "alarm": dict(self.alarm) if self.alarm else None,
+            "needle_sensor": (None if self.needle_sensed_down() is None
+                              else ("down" if self.needle_sensed_down() else "up")),
+            "needle_setup": self.needle_setup,
             "estopped": self.estopped,
             "busy": self.busy,
             "error": self.last_error,
@@ -269,7 +299,65 @@ class Machine:
             out[axis] = here + round((target - here) / q) * q
         return out
 
+    # ------------------------------------------------------------------ needle interlock
+
+    def needle_sensed_down(self) -> bool | None:
+        """What the needle position sensor reports (None before the first state)."""
+        s = self.t.state
+        return None if s is None else not s.needle_up
+
+    def needle_is_down(self) -> bool:
+        """Down if commanded down OR the sensor says so (a needle stuck down after
+        being switched up must still block X/Y moves)."""
+        s = self.t.state
+        if self.needle_sensed_down():
+            return True
+        if self._needle_cmd is not None:
+            return self._needle_cmd
+        return bool(s is not None and s.outputs & Output.PRICK)
+
+    async def _wait_needle(self, down: bool) -> None:
+        """Wait until the needle sensor reports the wanted position."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + max(0.0, self.cfg.head.needle_timeout)
+        while True:
+            s = await self.refresh()
+            if (not s.needle_up) == down:
+                return
+            if loop.time() >= deadline:
+                break
+            await asyncio.sleep(0.02)
+        if down:
+            raise NeedleError("the feeder needle did not go down (the sensor still reports up): "
+                              "check it is not jammed")
+        raise NeedleError("the feeder needle is stuck DOWN (the sensor still reports down): "
+                          "free it by hand, then switch it up again before moving")
+
+    @contextlib.contextmanager
+    def needle_moves_allowed(self):
+        """Allow X/Y moves with the needle down inside this block (feeding a lane)."""
+        self._needle_allow += 1
+        try:
+            yield
+        finally:
+            self._needle_allow -= 1
+
+    def _check_needle(self, xy_motion: bool) -> None:
+        if xy_motion and self.needle_is_down() and not (self._needle_allow or self.needle_setup):
+            if self.needle_sensed_down() and self._needle_cmd is False:
+                raise NeedleDown("the needle sensor reports the feeder needle DOWN although it was "
+                                 "switched up (stuck?): free it before moving X/Y")
+            raise NeedleDown("the feeder needle is down: raise it before moving X/Y")
+
+    async def set_needle_setup(self, down: bool) -> None:
+        """Setup tab needle step: lower the needle AND allow jogging with it down
+        (to put its tip on a mark). Raising it ends the exception."""
+        await self.set_output("prick", down)
+        self.needle_setup = down
+        self._notify()
+
     async def _move_steps(self, targets: dict[Axis, int], *, watch_limits: bool = True) -> p.MachineState:
+        self._check_needle(Axis.X in targets or Axis.Y in targets)
         m = self.cfg.motion
         start = await self.refresh()
         start_limits = start.inputs & LIMIT_BITS
@@ -380,6 +468,21 @@ class Machine:
     async def nozzles_up(self) -> dict[str, float]:
         return await self.move_to(z=0.0)
 
+    async def zero_z(self) -> dict[str, float]:
+        """Declare the current Z position as 0 (both nozzles level) without moving.
+
+        Z is a seesaw with no home switch: if a nozzle is driven onto its
+        mechanical end the motor skips steps and the controller's Z zero drifts.
+        Jog until both tips are level by eye, then call this.
+        """
+        async with self._operation("zeroing Z"):
+            before = self.position()["z"]
+            await self._send(p.encode_set_position({Axis.Z: 0}))
+            await self._wait_for(lambda s: abs(s.positions[Axis.Z]) <= self.cfg.motion.tolerance_steps,
+                                 2.0, "Z register update")
+            log.info("Z zeroed here (controller had %.3f mm)", before)
+            return self.position()
+
     async def rotate(self, nozzle: int, angle: float, *, shortest: bool = True) -> dict[str, float]:
         """Rotate a nozzle to `angle` degrees. With shortest=True the target is
         the equivalent angle closest to the current one (never > 180 deg)."""
@@ -396,13 +499,18 @@ class Machine:
 
     async def home(self) -> dict[str, float]:
         """Port of the Node bridge routine: raise Z, zero A, home Y then X."""
+        self._check_needle(True)
         async with self._operation("homing"):
             self.homed = False
             await self._move_steps({Axis.Z: 0})
             await self._send(p.encode_set_position({Axis.A1: 0, Axis.A2: 0}))
             await self._send(*p.HOMING_PREP_SEQUENCE)
             for axis in (Axis.Y, Axis.X):
-                await self._home_axis(axis)
+                try:
+                    await self._home_axis(axis)
+                except MachineError as exc:
+                    log.warning("homing %s failed: %s", NAME_BY_AXIS[axis].upper(), exc)
+                    raise
             self.homed = True
             log.info("homing complete")
             return self.position()
@@ -414,23 +522,26 @@ class Machine:
         far = self.to_steps(axis, h.approach_mm)
         pressed = lambda s: bool(s.inputs & bits)
 
+        # Every move below starts only after the axis has come to rest, and is
+        # resent if the controller doesn't start it: right after a stop (or the
+        # limit switch stopping the axis) the controller acknowledges a new move
+        # but may ignore it, which left homing stuck on the Y switch (2026-11-13).
         s = await self.refresh()
         if not pressed(s):
             others_at_start = s.inputs & LIMIT_BITS & ~bits
             wrong = lambda s: bool(s.inputs & LIMIT_BITS & ~bits & ~others_at_start)
-            await self._send(p.DEFAULT_SPEED_SETUP, p.encode_move({axis: s.positions[axis] + far}))
+            await self._start_home_move(axis, lambda pos: pos + far, f"{name} approach")
             s = await self._wait_for(lambda s: pressed(s) or wrong(s), h.approach_timeout, f"{name} limit switch")
             await self._send_stop(axis)
             if wrong(s) and not pressed(s):
                 tripped = p.Input(s.inputs & LIMIT_BITS & ~bits & ~others_at_start).name
                 raise HomingFailed(f"{name} homing hit the wrong switch ({tripped}): check the axis direction")
 
-        s = await self.refresh()
-        back = s.positions[axis] - self.to_steps(axis, h.back_off_mm)
-        await self._send(p.encode_move({axis: back}))
-        s = await self._wait_for(lambda s: not pressed(s), h.release_timeout, f"{name} switch to release")
+        back_off = self.to_steps(axis, h.back_off_mm)
+        await self._start_home_move(axis, lambda pos: pos - back_off, f"{name} back-off")
+        await self._wait_for(lambda s: not pressed(s), h.release_timeout, f"{name} switch to release")
 
-        await self._send(p.encode_move({axis: s.positions[axis] + far}))
+        await self._start_home_move(axis, lambda pos: pos + far, f"{name} 2nd approach")
         await self._wait_for(pressed, h.second_approach_timeout, f"{name} switch (2nd approach)")
         await self._send_stop(axis)
         # Let the axis come to rest before overwriting its register.
@@ -440,6 +551,25 @@ class Machine:
         await self._wait_for(lambda s: abs(s.positions[axis] - register) <= self.cfg.motion.tolerance_steps,
                              2.0, f"{name} register update")
         log.info("%s homed, register set to %d", name, register)
+
+    async def _start_home_move(self, axis: Axis, target_from, what: str, attempts: int = 3) -> None:
+        """Wait until `axis` is at rest, then move it to target_from(current position)
+        and confirm the move really started; resend up to `attempts` times."""
+        for attempt in range(1, attempts + 1):
+            await self._wait_settled(axis)
+            start = (await self.refresh()).positions[axis]
+            await self._send(p.DEFAULT_SPEED_SETUP, p.encode_move({axis: target_from(start)}))
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + 0.6
+            with self._fast_poll():
+                while loop.time() < deadline:
+                    s = await self._next_state()
+                    if abs(s.positions[axis] - start) > 2 * max(1, self.cfg.motion.step_quantum):
+                        if attempt > 1:
+                            log.info("%s started on attempt %d", what, attempt)
+                        return
+            log.warning("%s: the controller did not start the move (attempt %d of %d)", what, attempt, attempts)
+        raise HomingFailed(f"{what}: the controller did not start the move after {attempts} attempts")
 
     async def _wait_settled(self, axis: Axis) -> None:
         last, stable = None, 0
@@ -457,12 +587,101 @@ class Machine:
         if self.estopped and on and name != "leds":
             raise EStopped("E-stop active")
         await self._send(p.encode_outputs(on, OUTPUTS[name]))
+        if name == "prick":
+            self._needle_cmd = on
+            if not on:
+                self.needle_setup = False
+            self._notify()
+            # Confirm with the needle position sensor (status byte 10 bit 0x08).
+            try:
+                await self._wait_needle(down=on)
+            except NeedleError:
+                if on:  # jammed: don't leave the output on for a needle that isn't down
+                    with contextlib.suppress(MachineError):
+                        await self._send(p.encode_outputs(False, OUTPUTS[name]))
+                    self._needle_cmd = False
+                    self._notify()
+                    raise
+                # Stuck DOWN: sound the buzzer and wait for the user instead of
+                # failing; whatever called us (feed, pick, job) then carries on.
+                await self._needle_stuck_alarm()
+
+    # ------------------------------------------------------------------ alarm
+
+    async def _needle_stuck_alarm(self) -> None:
+        """Buzzer on + popup; return once the user pressed Clear and the needle
+        sensor reads up. Abort -> NeedleError, E-stop -> EStopped."""
+        self.alarm = {
+            "kind": "needle_stuck",
+            "title": "Feeder needle stuck",
+            "message": "The feeder needle did not come back up. Free it by hand, then press "
+                       "Clear and continue.",
+            "silenced": False,
+            "since": time.time(),
+        }
+        self._alarm_action = None
+        self._alarm_event.clear()
+        log.warning("ALARM: feeder needle stuck down; waiting for the operator")
+        with contextlib.suppress(MachineError):
+            await self._send(p.encode_outputs(True, Output.BUZZER))
+        self._notify()
+        try:
+            while True:
+                with contextlib.suppress(asyncio.TimeoutError):
+                    await asyncio.wait_for(self._alarm_event.wait(), 0.25)
+                if self.estopped:
+                    raise EStopped("E-stop pressed")
+                action, self._alarm_action = self._alarm_action, None
+                self._alarm_event.clear()
+                if action == "abort":
+                    raise NeedleError("the feeder needle is stuck DOWN (aborted by the operator)")
+                if action == "clear":
+                    try:
+                        s = await self.refresh()
+                    except NotReady:
+                        s = None
+                    if s is not None and s.needle_up:
+                        log.info("needle alarm cleared: needle up, continuing")
+                        return
+                    self.alarm["message"] = ("The needle sensor still reports DOWN. Free the needle, "
+                                             "then press Clear and continue again.")
+                    self._notify()
+        finally:
+            self.alarm = None
+            with contextlib.suppress(MachineError, NotConnected):
+                await self.t.send(p.encode_outputs(False, Output.BUZZER))
+            self._notify()
+
+    def alarm_clear(self) -> None:
+        """Popup "Clear and continue": resume once the needle sensor reads up."""
+        if self.alarm:
+            self._alarm_action = "clear"
+            self._alarm_event.set()
+
+    def alarm_abort(self) -> None:
+        if self.alarm:
+            self._alarm_action = "abort"
+            self._alarm_event.set()
+
+    async def alarm_silence(self) -> None:
+        """Buzzer off; the alarm (and the wait) stays."""
+        if self.alarm:
+            await self._send(p.encode_outputs(False, Output.BUZZER))
+            self.alarm["silenced"] = True
+            self._notify()
 
     async def has_part(self, nozzle: int) -> bool:
         s = await self.refresh()
         return s.pressure1 if nozzle == 1 else s.pressure2
 
     # ------------------------------------------------------------------ safety
+
+    async def reconnect(self) -> None:
+        """Drop the controller link and connect again now (UI Connect button).
+        Homing is lost: the controller may have been power-cycled."""
+        self.homed = False
+        await self.t.reconnect()
+        self._notify()
 
     async def estop(self) -> None:
         """Stop every axis and switch off vacuum/pump/blow/prick immediately.
@@ -472,6 +691,8 @@ class Machine:
         """
         self.estopped = True
         self.last_error = "E-stop pressed"
+        self._needle_cmd = False  # switched off below
+        self.needle_setup = False
         log.warning("E-STOP")
         with contextlib.suppress(NotConnected):
             await self.t.send(

@@ -28,6 +28,10 @@ STREAM_JPEG_QUALITY = 75
 SNAPSHOT_JPEG_QUALITY = 85
 
 
+class NeedleReq(BaseModel):
+    down: bool
+
+
 class ClickReq(BaseModel):
     u: float
     v: float
@@ -69,6 +73,7 @@ def add_vision_routes(app: FastAPI, machine, cameras: CameraManager | None, cali
     calibration_path = Path(calibration_path)
     app.state.calibration = Calibration.load(calibration_path)
     app.state.calibration_path = calibration_path
+    app.state.cameras = cameras  # CameraManager or None (fiducial measurement uses "down")
     app.state.calibration_lock = asyncio.Lock()
     app.state.camera_mark = None  # (x, y) of the down camera centre, in memory only
 
@@ -222,6 +227,14 @@ def add_vision_routes(app: FastAPI, machine, cameras: CameraManager | None, cali
         app.state.calibration.nozzle_offset[n] = t
         save()
         return {"nozzle": n, "offset": list(t)}
+
+    @app.post("/api/calibrate/needle")
+    async def setup_needle(req: NeedleReq):
+        """Setup needle step: lower/raise the feeder needle. While lowered this
+        way, X/Y jogging is allowed so the tip can be put on the camera mark;
+        everywhere else moves are refused with the needle down."""
+        await call(machine.set_needle_setup(req.down))
+        return {"needle_down": machine.needle_is_down(), "needle_setup": machine.needle_setup}
 
     @app.post("/api/calibrate/prick-offset")
     async def prick_offset():

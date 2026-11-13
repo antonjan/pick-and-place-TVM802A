@@ -14,14 +14,18 @@ steps:
   a: 4444.44
 
 limits:
-  # Measured 2026-11-12: absolute ends at X -115 and Y -77 (front/left), home corner at
-  # X 300.018 / Y 351.5. Soft limits sit 2 mm inside the minimums and ~1 mm inside home.
-  x: [-113.0, 299.0]
+  # Measured 2026-11-12: Y end at -77 (front), home corner at X 300.018 / Y 351.5.
+  # X minimum widened to -120 on 2026-11-13 (user: the head can travel further left
+  # than first measured). The Left limit switch still stops the head beyond that.
+  # Y sits 2 mm inside its measured end; both maximums ~1 mm inside home.
+  x: [-120.0, 299.0]
   y: [-75.0, 350.5]
-  # How far each nozzle may go down (mm). Both nozzles were checked down to
-  # 7.803 mm (256 000 steps) on 2026-11-12 and return to 0 on homing.
-  z1_max: 7.803
-  z2_max: 7.803
+  # How far each nozzle may go down from Z 0 (both tips level), in mm. Measured on the
+  # machine 2026-11-13: 9.5 mm is the absolute lowest for each nozzle. Z has NO limit
+  # switch; going further makes the seesaw motor skip steps (then re-level and press
+  # "Set Z zero here" on the Machine tab).
+  z1_max: 9.5
+  z2_max: 9.5
 
 homing:
   x_register: 9843000
@@ -45,7 +49,21 @@ server:
 #   place_dwell: 0.10     # s nozzle down before releasing
 #   blow_time: 0.10       # s blow-off after releasing at place/discard
 #   vacuum_settle: 0.10   # s after raising before checking the vacuum sensor
+#   vacuum_timeout: 0.60  # s to keep reading the sensor before the pick counts as failed
 #   prick_settle: 0.20    # s after switching the feeder needle down/up
-#   check_vacuum: true    # verify the part is present after a pick
+#   needle_timeout: 1.0   # s for the needle sensor to confirm down/up, else stop with an error
+#   check_vacuum: false   # true = check the vacuum sensor after a pick (failed check drops the part)
 #   place_depth: 3.0      # default nozzle depth for placing (mm)
 #   discard: []           # world [x, y] of the discard bin, e.g. [20.0, 300.0]
+
+# Bottom vision: the up camera measures each part on the nozzle before placing (defaults shown).
+# vision:
+#   bottom_vision: true     # inspect every part on the up camera before placing
+#   leds: true              # switch the "leds" output on while inspecting (off afterwards)
+#   settle: 0.15            # s after arriving over the up camera before taking the frame
+#   min_brightness: 0       # 0 = Otsu threshold; otherwise a fixed grey level (0-255)
+#   search_mm: 6.0          # only bright regions this close to the nozzle axis count (mm)
+#   tip_diameter: [0.8, 0.4]  # N1 (thick), N2 (thin) bare tip diameter (mm); a lone disc this size = no part
+#   size_tolerance: 0.3     # measured body vs expected body, relative
+#   max_offset_mm: 1.0      # reject a part further than this from the nozzle axis (mm)
+#   max_angle_deg: 15.0     # reject a part turned more than this (deg)

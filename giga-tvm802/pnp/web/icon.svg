@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1408 1408">
+  <!-- TVM802 app icon: camera frame corners around a crosshair, indigo centre (Graphite accent-fill). -->
+  <rect width="1408" height="1408" fill="#0e0f11"/>
+  <g fill="#ffffff">
+    <path d="M290 286h230v62H352v169h-62z"/>
+    <path d="M1118 286H888v62h168v169h62z"/>
+    <path d="M290 1105h230v-62H352V874h-62z"/>
+    <path d="M1118 1105H888v-62h168V874h62z"/>
+    <rect x="680" y="410" width="48" height="570"/>
+    <rect x="408" y="669" width="591" height="48"/>
+  </g>
+  <rect x="647" y="636" width="114" height="114" fill="#4f5ef5"/>
+</svg>

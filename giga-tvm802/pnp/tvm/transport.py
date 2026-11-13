@@ -55,6 +55,11 @@ class TvmTransport:
         self.connect_timeout = connect_timeout
         self.reply_timeout = reply_timeout
         self.no_reply_gap = no_reply_gap
+        # A powered-off controller cannot close the TCP connection, so a dead link
+        # only shows as missing replies. After this many state requests in a row go
+        # unanswered the connection is dropped and the reconnect loop takes over.
+        self.max_missed_replies = 3
+        self.last_error: str | None = None  # why the link is down (for the UI)
 
         self.state: p.MachineState | None = None
         self.state_seq = 0  # increments on every decoded state reply
@@ -68,6 +73,7 @@ class TvmTransport:
         self._state_cond = asyncio.Condition()
         self._runner: asyncio.Task | None = None
         self._stopping = False
+        self._wake = asyncio.Event()  # set by reconnect() to skip the retry delay
         self._state_listeners: list[Callable[[p.MachineState], None]] = []
         self._frame_listeners: list[Callable[[p.Frame], None]] = []
         self._connection_listeners: list[Callable[[bool], None]] = []
@@ -89,6 +95,29 @@ class TvmTransport:
                 pass
             self._runner = None
         await self._close_writer()
+
+    async def reconnect(self) -> None:
+        """Drop the current connection (if any) and connect again right away.
+
+        For the UI's Connect button: after a power cycle, or whenever the link
+        looks stuck. Safe to call while disconnected (skips the retry delay)."""
+        log.info("reconnect requested")
+        self.last_error = None
+        self._wake.set()
+        self._abort_connection()
+
+    def _abort_connection(self) -> None:
+        writer = self._writer
+        if writer is not None:
+            writer.transport.abort()  # reader sees EOF -> _run cleans up and reconnects
+
+    async def _sleep_or_wake(self, delay: float) -> None:
+        try:
+            await asyncio.wait_for(self._wake.wait(), delay)
+        except asyncio.TimeoutError:
+            pass
+        finally:
+            self._wake.clear()
 
     async def wait_connected(self, timeout: float | None = None) -> None:
         await asyncio.wait_for(self.connected.wait(), timeout)
@@ -170,10 +199,12 @@ class TvmTransport:
                 )
             except (OSError, asyncio.TimeoutError) as exc:
                 log.warning("TVM connect to %s:%s failed: %s", self.host, self.port, exc)
-                await asyncio.sleep(self.reconnect_delay)
+                self.last_error = f"cannot reach {self.host}:{self.port}: {exc or 'timed out'}"
+                await self._sleep_or_wake(self.reconnect_delay)
                 continue
 
             log.info("TVM connected (%s:%s)", self.host, self.port)
+            self.last_error = None
             self._writer = writer
             self._reassembler.reset()
             self.connected.set()
@@ -201,7 +232,7 @@ class TvmTransport:
                     self._notify_connection(False)
                 log.info("TVM connection closed")
             if not self._stopping:
-                await asyncio.sleep(self.reconnect_delay)
+                await self._sleep_or_wake(self.reconnect_delay)
 
     async def _read_loop(self, reader: asyncio.StreamReader) -> None:
         try:
@@ -240,11 +271,18 @@ class TvmTransport:
 
     async def _poll_loop(self) -> None:
         await asyncio.sleep(self.delay_before_polling)
+        missed = 0
         while True:
             try:
                 await self.request_state()
+                missed = 0
             except NoReply:
-                pass  # logged; keep polling
+                missed += 1
+                if missed >= self.max_missed_replies:
+                    log.warning("no reply to %d state requests in a row: dropping the connection", missed)
+                    self.last_error = "machine stopped answering (powered off or cable unplugged?)"
+                    self._abort_connection()
+                    return
             except NotConnected:
                 return
             await asyncio.sleep(self.poll_interval)

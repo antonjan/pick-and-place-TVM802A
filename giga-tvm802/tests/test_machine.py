@@ -225,3 +225,196 @@ async def test_homing_wrong_switch_aborts(sim, m):
     with pytest.raises(HomingFailed, match="wrong switch"):
         await m.home()
     assert not m.homed
+
+
+# ---------------------------------------------------------------- feeder needle interlock
+
+from pnp.machine.machine import NeedleDown  # noqa: E402
+from pnp.tvm.protocol import Output  # noqa: E402
+
+
+@scenario()
+async def test_needle_down_blocks_xy_moves(sim, m):
+    await m.home()
+    await m.move_to(x=100, y=100)
+    await m.set_output("prick", True)
+    assert m.needle_is_down() and m.snapshot()["needle_down"]
+    with pytest.raises(NeedleDown):
+        await m.move_to(x=110)
+    with pytest.raises(NeedleDown):
+        await m.jog("y", 1.0)
+    with pytest.raises(NeedleDown):
+        await m.home()
+    # Z and rotation don't move the needle across the bed: still allowed
+    await m.move_to(z=1.0)
+    await m.rotate(1, 45)
+    await m.nozzles_up()
+    await m.set_output("prick", False)
+    pos = await m.move_to(x=110)
+    assert pos["x"] == pytest.approx(110, abs=Q_MM)
+
+
+@scenario()
+async def test_needle_moves_allowed_for_feeding(sim, m):
+    await m.home()
+    await m.move_to(x=100, y=100)
+    await m.set_output("prick", True)
+    with m.needle_moves_allowed():
+        pos = await m.move_to(x=104)
+    assert pos["x"] == pytest.approx(104, abs=Q_MM)
+    with pytest.raises(NeedleDown):  # the exception ends with the block
+        await m.move_to(x=108)
+    await m.set_output("prick", False)
+
+
+@scenario()
+async def test_needle_setup_mode_allows_jogging_until_raised(sim, m):
+    await m.home()
+    await m.move_to(x=100, y=100)
+    await m.set_needle_setup(True)
+    assert m.needle_setup and m.needle_is_down()
+    pos = await m.jog("x", 0.5)
+    assert pos["x"] == pytest.approx(100.5, abs=Q_MM)
+    await m.set_output("prick", False)  # raising it any way ends setup mode
+    assert not m.needle_setup and not m.needle_is_down()
+    await m.set_output("prick", True)  # lowered outside Setup: blocked again
+    with pytest.raises(NeedleDown):
+        await m.jog("x", 0.5)
+    await m.set_output("prick", False)
+
+
+@scenario()
+async def test_needle_reported_down_at_connect_blocks(sim, m):
+    """Needle left down before the app connected: trust the controller's report."""
+    await m.home()
+    sim.machine.outputs |= int(Output.PRICK)
+    m._needle_cmd = None
+    await m.refresh()
+    assert m.needle_is_down()
+    with pytest.raises(NeedleDown):
+        await m.move_to(x=50)
+
+
+@scenario()
+async def test_estop_clears_needle_state(sim, m):
+    await m.home()
+    await m.set_needle_setup(True)
+    await m.estop()
+    assert not m.needle_setup
+    await asyncio.sleep(0.2)  # the needle takes a moment to rise; the sensor follows it
+    await m.refresh()
+    assert not m.needle_is_down()
+    await m.reset()
+
+
+@scenario()
+async def test_zero_z_sets_current_height_as_zero(sim, m):
+    """Seesaw Z has no home switch: after lost steps, re-zero where both tips are level."""
+    await m.move_to(z=1.5)  # pretend the tips are level here
+    phys_before = sim.machine.axes[Axis.Z].phys
+    pos = await m.zero_z()
+    assert pos["z"] == pytest.approx(0.0, abs=Q_MM)
+    assert sim.machine.axes[Axis.Z].phys == phys_before  # nothing moved
+    pos = await m.move_to(z=1.0)  # 1 mm below the NEW zero
+    assert pos["z"] == pytest.approx(1.0, abs=Q_MM)
+    moved = (sim.machine.axes[Axis.Z].phys - phys_before) / STEPS_PER_MM
+    assert moved == pytest.approx(1.0, abs=Q_MM)
+
+
+
+# ---------------------------------------------------------------- needle position sensor
+
+from pnp.machine.machine import NeedleError  # noqa: E402
+
+
+@scenario()
+async def test_needle_switch_waits_for_sensor(sim, m):
+    await m.set_output("prick", True)
+    assert sim.machine.needle_down  # returned only once the sensor reported it
+    assert m.snapshot()["needle_sensor"] == "down"
+    await m.set_output("prick", False)
+    assert not sim.machine.needle_down
+    assert m.snapshot()["needle_sensor"] == "up"
+
+
+@scenario(SimConfig(needle_stuck="up"))
+async def test_needle_that_does_not_go_down_is_reported_and_switched_off(sim, m):
+    with pytest.raises(NeedleError, match="did not go down"):
+        await m.set_output("prick", True)
+    assert not sim.machine.outputs & int(Output.PRICK)  # output switched off again
+    assert not m.needle_is_down()
+
+
+async def _until(cond, timeout=5.0):
+    end = asyncio.get_running_loop().time() + timeout
+    while not cond():
+        assert asyncio.get_running_loop().time() < end, "timed out"
+        await asyncio.sleep(0.02)
+
+
+@scenario(SimConfig(needle_stuck="down"))
+async def test_needle_stuck_alarm_buzzes_waits_and_continues_after_clear(sim, m):
+    await m.home()
+    await m.move_to(x=100, y=100)
+    await m.set_output("prick", True)
+    raising = asyncio.create_task(m.set_output("prick", False))  # waits on the alarm
+    await _until(lambda: m.alarm is not None)
+    assert m.snapshot()["alarm"]["kind"] == "needle_stuck"
+    await _until(lambda: bool(sim.machine.outputs & int(Output.BUZZER)))
+    assert not raising.done()
+    # while waiting, nothing may move: the sensor says down
+    with pytest.raises(NeedleDown, match="sensor"):
+        await m.move_to(x=110)
+    # silence: buzzer off, still waiting
+    await m.alarm_silence()
+    assert not sim.machine.outputs & int(Output.BUZZER)
+    assert m.alarm["silenced"] and not raising.done()
+    # Clear while still stuck: alarm stays and says so
+    m.alarm_clear()
+    await asyncio.sleep(0.5)
+    assert not raising.done() and "still reports DOWN" in m.alarm["message"]
+    # freed by hand, then Clear: the waiting action carries on without an error
+    sim.machine.cfg.needle_stuck = None
+    await asyncio.sleep(0.2)
+    m.alarm_clear()
+    await asyncio.wait_for(raising, 5)
+    assert m.alarm is None and not m.needle_is_down()
+    assert not sim.machine.outputs & int(Output.BUZZER)
+    assert (await m.move_to(x=110))["x"] == pytest.approx(110, abs=Q_MM)
+
+
+@scenario(SimConfig(needle_stuck="down"))
+async def test_needle_stuck_alarm_abort_raises(sim, m):
+    await m.set_output("prick", True)
+    raising = asyncio.create_task(m.set_output("prick", False))
+    await _until(lambda: m.alarm is not None)
+    m.alarm_abort()
+    with pytest.raises(NeedleError, match="aborted"):
+        await asyncio.wait_for(raising, 5)
+    assert m.alarm is None
+    assert not sim.machine.outputs & int(Output.BUZZER)
+
+
+@scenario(SimConfig(needle_stuck="down"))
+async def test_needle_stuck_alarm_ends_on_estop(sim, m):
+    await m.set_output("prick", True)
+    raising = asyncio.create_task(m.set_output("prick", False))
+    await _until(lambda: m.alarm is not None)
+    await m.estop()
+    with pytest.raises(EStopped):
+        await asyncio.wait_for(raising, 5)
+    assert m.alarm is None
+    assert not sim.machine.outputs & int(Output.BUZZER)
+    await m.reset()
+
+
+@scenario(SimConfig(move_ignored_after_stop=0.3))
+async def test_homing_survives_moves_ignored_right_after_a_stop(sim, m):
+    """Real controller (suspected): right after an axis stops on its limit switch, a
+    new move is acknowledged but ignored. Homing used to wait 15 s for the switch to
+    release and fail; it must now notice the move didn't start and resend it."""
+    pos = await m.home()
+    assert m.homed
+    assert pos["y"] == pytest.approx(11_532_000 / STEPS_PER_MM, abs=1e-4)
+    assert pos["x"] == pytest.approx(9_843_000 / STEPS_PER_MM, abs=1e-4)
+    assert sim.machine.ignored_moves >= 1  # the situation really occurred and was recovered

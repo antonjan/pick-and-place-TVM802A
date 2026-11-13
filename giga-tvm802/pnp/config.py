@@ -81,13 +81,34 @@ class ServerConfig:
 @dataclass
 class HeadConfig:
     pick_dwell: float = 0.15  # s with the nozzle down on the part, vacuum on
+    # s to wait for the feeder needle sensor to confirm a down/up switch; longer
+    # means the needle is jammed (didn't go down) or stuck (didn't come up).
+    needle_timeout: float = 1.0
     place_dwell: float = 0.10  # s with the nozzle down before releasing
     blow_time: float = 0.10  # s of blow-off after releasing vacuum at place/discard
     vacuum_settle: float = 0.10  # s after raising before reading the vacuum sensor
+    vacuum_timeout: float = 0.60  # s to keep reading the sensor before calling the pick failed
     prick_settle: float = 0.20  # s after switching the needle down/up
-    check_vacuum: bool = True  # verify part presence after pick
+    # Verify the part with the vacuum sensor after a pick (failed check = vacuum off).
+    # Off by default since 2026-11-13: on the real machine the sensor did not report
+    # held parts, so good picks were dropped. Vacuum now stays on until place/discard.
+    check_vacuum: bool = False
     place_depth: float = 3.0  # default nozzle depth for placing (mm)
+    pick_depth: float = 3.0  # default nozzle depth for picking, used for new feeders/lanes (mm)
     discard: tuple[float, ...] = ()  # world [x, y] of the discard bin; empty = not set
+
+
+@dataclass
+class VisionConfig:
+    bottom_vision: bool = True  # inspect every part on the up camera before placing
+    leds: bool = True  # switch the leds output on while inspecting (off afterwards)
+    settle: float = 0.15  # s after arriving over the up camera before taking the frame
+    min_brightness: int = 0  # 0 = Otsu threshold; otherwise a fixed grey threshold
+    search_mm: float = 6.0  # only bright regions within this radius of the nozzle axis count
+    tip_diameter: tuple[float, float] = (0.8, 0.4)  # N1 (thick), N2 (thin): a lone round blob this size = no part
+    size_tolerance: float = 0.3  # measured body vs expected body, relative
+    max_offset_mm: float = 1.0  # reject a part further than this from the nozzle axis
+    max_angle_deg: float = 15.0  # reject a part turned more than this
 
 
 @dataclass
@@ -99,6 +120,7 @@ class MachineConfig:
     motion: MotionConfig = field(default_factory=MotionConfig)
     server: ServerConfig = field(default_factory=ServerConfig)
     head: HeadConfig = field(default_factory=HeadConfig)
+    vision: VisionConfig = field(default_factory=VisionConfig)
 
 
 def _build(cls, data: dict[str, Any] | None, path: str):

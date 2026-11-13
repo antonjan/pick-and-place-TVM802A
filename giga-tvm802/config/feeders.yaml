@@ -1,0 +1,47 @@
+feeders:
+- id: L1
+  name: 100nF
+  kind: drag
+  pick:
+  - -115.734
+  - 99.305
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 8.0
+  prick:
+  - -105.767
+  - 102.688
+  needs_feed: true
+  enabled: true
+  value: 100nF
+  package: ''
+  bank: ''
+  lane: null
+- id: L2
+  name: 10K
+  kind: drag
+  pick:
+  - 0.0
+  - 0.0
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 3.0
+  prick:
+  - 0.0
+  - 0.0
+  needs_feed: true
+  enabled: true
+  value: 10K
+  package: ''
+  bank: ''
+  lane: null

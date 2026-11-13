@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 import functools
 import time
 from dataclasses import dataclass
@@ -330,3 +331,84 @@ def test_centre_on_blob_stops_at_machine_resolution():
     camera = FakeCamera(machine, A, disc_canvas((0.37, -0.21)))
     x, y = asyncio.run(centre_on_blob(machine, camera, A, tol_px=0.5, resolution_mm=QuantizedMachine.Q))
     assert abs(x - 0.37) < QuantizedMachine.Q and abs(y + 0.21) < QuantizedMachine.Q
+
+
+GLOW_DIR = Path(__file__).parent / "data" / "down_glow"
+# Real TVM802 head-camera frames (2026-11-13): a PCB under the head with the head's
+# red glow fixed in the image. c0 = start, the others after 1 mm moves.
+GLOW_MOVES = {"xp": (1, 0), "xm": (-1, 0), "yp": (0, 1), "ym": (0, -1), "xpyp": (1, 1), "xmym": (-1, -1)}
+
+
+def _glow_fit(**kw):
+    ref = cv2.imread(str(GLOW_DIR / "c0.jpg"))
+    template = centre_patch(ref)
+    moves, shifts = [], []
+    for name, d in GLOW_MOVES.items():
+        su, sv, _ = measure_shift(template, cv2.imread(str(GLOW_DIR / f"{name}.jpg")), min_score=0.0, **kw)
+        moves.append(d)
+        shifts.append((su, sv))
+    return solve_scale(moves, shifts)
+
+
+def test_real_glow_frames_fit_with_highpass():
+    A, rms = _glow_fit()
+    assert rms < 0.5
+    # about 42 px/mm, image rotated ~1 deg; X+ moves the view content left
+    assert np.allclose(A, [[-42.2, -0.8], [-0.6, 42.0]], atol=1.5)
+
+
+def test_real_glow_frames_fail_without_highpass():
+    """Documents the bug: plain matching locks onto the glow (rms ~17 px)."""
+    _A, rms = _glow_fit(highpass_sigma=None)
+    assert rms > 5.0
+
+
+# The real head camera's calibrated scale (2026-11-13).
+A_REAL = np.array([[-42.42, -0.77], [-0.60, 42.29]])
+
+
+def test_real_frame_mark_found_at_crosshair():
+    """J2 through-hole pad under the crosshair, red glow around it. The old
+    global threshold picked the whole dark area 74 px off-centre."""
+    img = cv2.imread(str(GLOW_DIR / "mark_j2.jpg"))
+    h, w = img.shape[:2]
+    k = float(np.mean(np.linalg.svd(A_REAL, compute_uv=False)))
+    blob = find_blob(img, min_area=np.pi * (0.3 * k / 2) ** 2, max_area=np.pi * (4 * k / 2) ** 2,
+                     block=int(2.5 * k) | 1, min_circularity=0.6)
+    assert blob is not None
+    assert np.hypot(blob[0] - w / 2, blob[1] - h / 2) < 5.0
+
+
+class _StaticCamera:
+    """Shows the same image whatever the head does, like glare fixed to the camera."""
+
+    def __init__(self, img):
+        self.img = img
+        self.seq = 0
+
+    async def fresh_frame(self, after=None, timeout: float = 3.0):
+        self.seq += 1
+        return _Frame(self.img, time.monotonic(), self.seq)
+
+
+def _dot_image(du: float, dv: float, r_px: float = 20) -> np.ndarray:
+    img = np.full((480, 640, 3), 200, np.uint8)
+    cv2.circle(img, (int(320 + du), int(240 + dv)), int(r_px), (40, 40, 40), -1)
+    return img
+
+
+def test_centre_stops_when_mark_does_not_follow():
+    machine = FakeMachine(10.0, 10.0)
+    camera = _StaticCamera(_dot_image(30, 0))  # 1.2 mm off, never moves
+    with pytest.raises(CalibrationError, match="did not move towards the centre"):
+        asyncio.run(centre_on_blob(machine, camera, A_DOWN))
+    # it made exactly one correction and then stopped instead of running away
+    assert len(machine.moves) == 1
+
+
+def test_centre_refuses_large_jump():
+    machine = FakeMachine(10.0, 10.0)
+    camera = _StaticCamera(_dot_image(150, 0))  # 6 mm off at 25 px/mm
+    with pytest.raises(CalibrationError, match="mm away"):
+        asyncio.run(centre_on_blob(machine, camera, A_DOWN))
+    assert machine.moves == []

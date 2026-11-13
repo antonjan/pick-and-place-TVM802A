@@ -300,3 +300,24 @@ def test_uvc_camera_waits_while_device_missing(tmp_path):
     with pytest.raises(CameraError, match="not present"):
         cam._open()
     assert cam._missing
+
+
+
+def test_hung_camera_does_not_block_the_other_forever(tmp_path, monkeypatch):
+    """A camera stuck inside open() holds the one-at-a-time turn; the other camera
+    must still get to open after OPEN_TURN_TIMEOUT."""
+    import pnp.vision.camera as cam_mod
+    from pnp.vision.camera import CameraConfig, UvcCamera
+
+    monkeypatch.setattr(cam_mod, "OPEN_TURN_TIMEOUT", 0.2)
+    dev = tmp_path / "video-fake"
+    dev.write_text("x")
+    cam = UvcCamera(CameraConfig(name="t", device=str(dev)))
+    opened = []
+    monkeypatch.setattr(cam, "_open_locked", lambda: opened.append(True) or ("cap", "img"))
+    assert cam_mod._OPEN_LOCK.acquire()  # "the other camera is hung while opening"
+    try:
+        assert cam._open() == ("cap", "img")
+    finally:
+        cam_mod._OPEN_LOCK.release()
+    assert opened == [True]

@@ -29,8 +29,9 @@ const TASKS = {
   "up-pos-1": { label: "Nozzle 1 up position", path: "/api/calibrate/up-position/1" },
   "up-pos-2": { label: "Nozzle 2 up position", path: "/api/calibrate/up-position/2" },
   "reload-config": { label: "Reload config", path: "/api/config/reload" },
-  "prick-on": { label: "Prick needle down", path: "/api/output", body: () => ({ name: "prick", on: true }) },
-  "prick-off": { label: "Prick needle up", path: "/api/output", body: () => ({ name: "prick", on: false }) },
+  "prick-on": { label: "Prick needle down (jogging allowed for setup)", path: "/api/calibrate/needle",
+                body: () => ({ down: true }) },
+  "prick-off": { label: "Prick needle up", path: "/api/calibrate/needle", body: () => ({ down: false }) },
   "prick-offset": { label: "Prick needle offset", path: "/api/calibrate/prick-offset" },
 };
 
@@ -46,11 +47,20 @@ const FEEDER_ACTIONS = {
   "feed": { label: "Feed", needs: true, drag: true,
             run: (id) => api(fpath(id, "/feed")) },
   "pick": { label: "Pick", needs: true, nozzle: true,
-            run: (id) => api(fpath(id, "/pick"), { nozzle: feederNozzle }) },
+            run: (id) => api(fpath(id, "/pick"), { nozzle: feederNozzle, vision: feederVision }) },
   "pick-place": { label: "Pick and place", needs: true, nozzle: true,
-                  run: (id) => api(fpath(id, "/pick-and-place"), { nozzle: feederNozzle, rotation: 0, depth: null }) },
-  "place": { label: "Place at crosshair", nozzle: true,
-             run: () => api("/api/head/place", { nozzle: feederNozzle, rotation: 0, depth: null }) },
+                  run: (id) => api(fpath(id, "/pick-and-place"),
+                                   { nozzle: feederNozzle, vision: feederVision, ...placeTarget() }) },
+  "place": { label: "Place", nozzle: true,
+             run: () => api("/api/head/place", { nozzle: feederNozzle, ...placeTarget() }) },
+  "goto-target": { label: "Go to target",
+                   run: () => {
+                     const t = placeTarget();
+                     if (t.x === null || t.y === null) throw new Error("enter X and Y first");
+                     return api("/api/move", { x: t.x, y: t.y });
+                   } },
+  "inspect": { label: "Inspect part", nozzle: true,
+               run: () => api("/api/head/inspect", { nozzle: feederNozzle }) },
   "discard": { label: "Discard", nozzle: true,
                run: () => api("/api/head/discard", { nozzle: feederNozzle }) },
 };
@@ -62,6 +72,9 @@ let taskRunning = false;
 let feeders = [];        // last GET /api/feeders
 let selectedId = null;   // feeder shown in the form; null = a new feeder
 let feederNozzle = 1;
+// Feeders tab "Vision check" switch for manual picks; remembered per browser.
+let feederVision = true;
+try { feederVision = localStorage.getItem("feederVision") !== "off"; } catch (_) { /* storage blocked */ }
 let feederBusy = false;  // a feeder save/delete or head action is running
 let headState = null;    // last GET /api/head
 
@@ -76,11 +89,25 @@ function log(msg, isErr = false) {
     list.prepend(li);
     while (list.children.length > 200) list.lastChild.remove();
   }
+  $("#log-empty").hidden = true;
 }
 
-function showError(msg) {
+function clearLog() {
+  for (const list of $$("[data-log]")) list.replaceChildren();
+  $("#log-empty").hidden = false;
+}
+
+// The banner shows either a machine error (from the live state) or the error of
+// the last failed request. The live state only clears a banner it put up itself,
+// so a request error (e.g. a failed calibration) stays visible until the next
+// successful request instead of vanishing on the next state update.
+let bannerFromMachine = false;
+
+function showError(msg, fromMachine = false) {
+  if (!msg && fromMachine && !bannerFromMachine) return;
+  bannerFromMachine = !!msg && fromMachine;
   $("#error").hidden = !msg;
-  $("#error").textContent = msg || "";
+  $("#error-text").textContent = msg || "";
 }
 
 async function api(path, body, method = "POST") {
@@ -92,9 +119,12 @@ async function api(path, body, method = "POST") {
     const msg = typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail ?? data);
     log(`${path}: ${msg}`, true);
     showError(msg);
-    throw new Error(msg);
+    const err = new Error(msg);
+    err.shown = true;  // already logged and in the banner
+    throw err;
   }
-  showError(state && state.error ? state.error : "");
+  if (state && state.error) showError(state.error, true);
+  else showError("");  // a successful request clears an old request error
   return data;
 }
 
@@ -109,6 +139,67 @@ function numberInput(sel, fallback = 1.0) {
 
 const fmt = (v, d = 3) => Number(v).toFixed(d);
 const fmtPair = (p) => `(${fmt(p[0])}, ${fmt(p[1])}) mm`;
+const enc = (s) => encodeURIComponent(s);
+
+// DOM and request helpers shared by banks.js, job.js and rules.js.
+function elem(tag, className = "", text = null) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== null) node.textContent = text;
+  return node;
+}
+
+function iconEl(id) {
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("class", "icon");
+  const use = document.createElementNS(ns, "use");
+  use.setAttribute("href", `#${id}`);
+  svg.append(use);
+  return svg;
+}
+
+function buttonEl(label, className, icon = null) {
+  const btn = elem("button", className);
+  btn.type = "button";
+  if (icon) btn.append(iconEl(icon));
+  if (label) btn.append(document.createTextNode(label));
+  return btn;
+}
+
+function optionEl(value, label) {
+  const o = elem("option", "", label);
+  o.value = String(value);
+  return o;
+}
+
+// options: [{value, label}]. A value not in the list is added so it stays visible.
+function makeSelect(options, value) {
+  const list = options.map((o) => ({ value: String(o.value), label: o.label }));
+  const cur = value == null ? null : String(value);
+  if (cur !== null && !list.some((o) => o.value === cur)) list.push({ value: cur, label: cur });
+  const sel = elem("select");
+  sel.append(...list.map((o) => optionEl(o.value, o.label)));
+  sel.value = cur ?? (list[0] ? list[0].value : "");
+  return sel;
+}
+
+function parseNum(text, label) {
+  const v = parseFloat(text);
+  if (!Number.isFinite(v)) throw new Error(`${label} must be a number`);
+  return v;
+}
+
+function reportError(err) {
+  log(err.message, true);
+  showError(err.message);
+}
+
+async function getJson(path) {
+  const res = await fetch(path);
+  if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
+  return res.json();
+}
 
 // ------------------------------------------------------------------ tabs
 
@@ -116,10 +207,15 @@ function showTab(name) {
   for (const b of $$("nav button.tab[data-tab]")) b.classList.toggle("active", b.dataset.tab === name);
   for (const page of $$("main[data-tab]")) page.hidden = page.dataset.tab !== name;
   if (name === "setup") refreshCalibration();
+  if (name === "settings") loadRules();
+  if (name === "defaults") loadDefaults();
   if (name === "feeders") {
     refreshFeeders();
+    refreshBanks();
     loadHead();
   }
+  if (name === "job") onJobTabShown();
+  else onJobTabHidden();
   syncStreams();
 }
 
@@ -127,15 +223,24 @@ function showTab(name) {
 
 function setPill(el, text, cls) {
   el.textContent = text;
-  el.className = `pill ${cls}`;
+  el.className = `badge ${cls}`;
 }
+
+const sentence = (t) => (t ? t.charAt(0).toUpperCase() + t.slice(1) : t);
 
 function render(s) {
   state = s;
-  setPill($("#pill-conn"), s.connected ? "connected" : "offline", s.connected ? "ok" : "bad");
-  setPill($("#pill-homed"), s.homed ? "homed" : "not homed", s.homed ? "ok" : "warn");
-  setPill($("#pill-busy"), s.busy || "idle", s.busy ? "busy" : "idle");
-  setPill($("#pill-speed"), `speed ${s.speed_mode ?? "?"}`, "idle");
+  setPill($("#pill-conn"), s.connected ? "Connected" : "Offline", s.connected ? "success" : "danger");
+  $("#pill-conn").title = s.connected ? "" : (s.link_error || "Not connected to the machine");
+  const connectBtn = $("#btn-connect");
+  connectBtn.hidden = s.connected;
+  if (s.connected && connectBtn.disabled) {
+    connectBtn.disabled = false;
+    log("machine connected");
+  }
+  setPill($("#pill-homed"), s.homed ? "Homed" : "Not homed", s.homed ? "success" : "warning");
+  setPill($("#pill-busy"), s.busy ? sentence(s.busy) : "Idle", s.busy ? "accent" : "");
+  setPill($("#pill-speed"), `Speed ${s.speed_mode ?? "?"}`, "");
 
   const p = s.position;
   $("#pos-x").textContent = p.x.toFixed(3);
@@ -143,13 +248,15 @@ function render(s) {
   $("#pos-z").textContent = p.z.toFixed(3);
   $("#pos-a1").textContent = p.a1.toFixed(2);
   $("#pos-a2").textContent = p.a2.toFixed(2);
-  $("#z-hint").textContent = p.z > 0.05 ? "N1↓" : p.z < -0.05 ? "N2↓" : "up";
+  $("#z-hint").textContent = p.z > 0.05 ? "N1 down" : p.z < -0.05 ? "N2 down" : "mm";
 
   for (const k of ["left", "right", "top", "bottom"]) {
     $(`#lim-${k}`).classList.toggle("on", !!s.limits[k]);
   }
   $("#vac-1").classList.toggle("on", !!s.vacuum["1"]);
   $("#vac-2").classList.toggle("on", !!s.vacuum["2"]);
+  $("#needle-led").classList.toggle("on", s.needle_sensor === "down");
+  renderAlarm(s);
 
   for (const btn of $$("[data-out]")) {
     btn.classList.toggle("on", !!s.outputs[btn.dataset.out]);
@@ -158,12 +265,12 @@ function render(s) {
   document.body.classList.toggle("estopped", s.estopped);
   $("#btn-reset").hidden = !s.estopped;
   const block = !s.connected || s.estopped || !!s.busy;
-  for (const b of $$("[data-jog],[data-z],[data-rot],[data-zero],#btn-up,#btn-home,#goto button")) {
+  for (const b of $$("[data-jog],[data-z],[data-rot],[data-zero],#btn-up,#btn-zero-z,#btn-home,#goto button")) {
     b.disabled = block;
   }
   $("#goto button").disabled = block || !s.homed;
   updateFeederButtons();
-  showError(s.error);
+  showError(s.error, true);
 }
 
 function renderCameras() {
@@ -191,7 +298,9 @@ function renderCameras() {
 function syncStreams() {
   for (const img of $$("img[data-cam]")) {
     const name = img.dataset.cam;
-    const visible = !img.closest("main").hidden && (cameras === null || cameras.has(name));
+    // Views in the pinned top-bar strip are always on screen; others only on the visible tab.
+    const main = img.closest("main");
+    const visible = (!main || !main.hidden) && (cameras === null || cameras.has(name));
     if (visible && !img.getAttribute("src")) {
       img.setAttribute("src", `/cameras/${name}/stream.mjpg`);
     } else if (!visible && img.getAttribute("src")) {
@@ -237,7 +346,7 @@ function connect() {
   const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
   ws.onmessage = (ev) => render(JSON.parse(ev.data));
   ws.onclose = () => {
-    setPill($("#pill-conn"), "server lost", "bad");
+    setPill($("#pill-conn"), "Server lost", "danger");
     setTimeout(connect, 1000);
   };
 }
@@ -260,10 +369,17 @@ async function viewClick(img, ev) {
     log(`${img.dataset.cam} camera: no frame yet`, true);
     return;
   }
-  // Full-resolution pixel coordinates of the click.
+  // Full-resolution pixel coordinates of the click. The image is drawn with
+  // object-fit: contain, so allow for the letterbox bars around the picture.
   const r = img.getBoundingClientRect();
-  const u = (ev.clientX - r.left) * img.naturalWidth / r.width;
-  const v = (ev.clientY - r.top) * img.naturalHeight / r.height;
+  const nw = img.naturalWidth;
+  const nh = img.naturalHeight;
+  const scale = Math.min(r.width / nw, r.height / nh);
+  const left = r.left + (r.width - nw * scale) / 2;
+  const top = r.top + (r.height - nh * scale) / 2;
+  const u = (ev.clientX - left) / scale;
+  const v = (ev.clientY - top) / scale;
+  if (u < 0 || v < 0 || u > nw || v > nh) return; // click on a letterbox bar
   log(`${img.dataset.cam} click at pixel (${Math.round(u)}, ${Math.round(v)})`);
   await api(`/api/cameras/${img.dataset.cam}/click`, { u, v }).catch(() => {});
 }
@@ -276,7 +392,56 @@ function initViews() {
 
 // ------------------------------------------------------------------ setup tasks
 
+// Inspection results (head.last_inspection and POST /api/head/inspect).
+const INSPECT_BADGE = {
+  ok: ["success", "OK"],
+  skipped: ["", "Vision off"],
+  "no part": ["danger", "No part"],
+  rejected: ["danger", "Rejected"],
+};
+
+function inspectionDetail(insp) {
+  if (insp.result !== "ok") return insp.message || "";
+  const bits = [];
+  if (insp.offset) bits.push(`offset ${Math.hypot(insp.offset[0], insp.offset[1]).toFixed(2)} mm`);
+  if (insp.angle_error != null) {
+    const a = insp.angle_error;
+    bits.push(`angle ${a < 0 ? "−" : ""}${Math.abs(a).toFixed(1)}°`);
+  }
+  if (insp.size) bits.push(`${insp.size[0].toFixed(2)} × ${insp.size[1].toFixed(2)} mm`);
+  return bits.join(" · ");
+}
+
+// Nodes for one inspection row: nozzle, result badge, detail text. Caller puts them in .inspection.
+function inspectionParts(insp) {
+  const [cls, label] = INSPECT_BADGE[insp.result] || ["", insp.result];
+  const nodes = [
+    elem("span", "node", `N${insp.nozzle}`),
+    elem("span", `badge ${cls}`.trim(), label),
+  ];
+  const detail = inspectionDetail(insp);
+  if (detail) nodes.push(elem("span", "detail", detail));
+  return nodes;
+}
+
+function inspectionSummary(insp) {
+  const [, label] = INSPECT_BADGE[insp.result] || ["", insp.result];
+  const detail = inspectionDetail(insp);
+  return detail ? `${label}, ${detail}` : label;
+}
+
+// The newest of several inspection records (by `at`), or null.
+function latestInspection(list) {
+  let best = null;
+  for (const insp of Object.values(list || {})) {
+    if (!insp) continue;
+    if (!best || Date.parse(insp.at) > Date.parse(best.at)) best = insp;
+  }
+  return best;
+}
+
 function describeResult(res) {
+  if (res.nozzle !== undefined && res.result !== undefined) return inspectionSummary(res);
   if (res.A) {
     const mm = res.mm_per_px.toFixed(4);
     return `${mm} mm/px, rms ${res.rms_px.toFixed(2)} px, angle ${res.angle_deg.toFixed(2)}°${res.mirrored ? ", mirrored" : ""}`;
@@ -290,7 +455,7 @@ function describeResult(res) {
 
 function setSetupBusy(busy) {
   taskRunning = busy;
-  for (const b of $$("#tab-setup button")) b.disabled = busy;
+  for (const b of $$("#tab-setup button, [data-task]")) b.disabled = busy;
 }
 
 async function runTask(name) {
@@ -373,13 +538,24 @@ function initControls() {
     b.addEventListener("click", () => api("/api/rotate", { nozzle: +b.dataset.zero, angle: 0 }).catch(() => {}));
   }
   $("#btn-up").addEventListener("click", () => api("/api/nozzle/up").catch(() => {}));
+  $("#btn-zero-z").addEventListener("click", async () => {
+    const z = state ? state.position.z.toFixed(3) : "?";
+    if (!await askConfirm(`Set the current Z (${z} mm) as 0?\n\nOnly do this when both nozzle tips are level.`,
+                          "Set Z zero")) return;
+    try {
+      await api("/api/machine/zero-z");
+      log(`Z zeroed here (was ${z} mm)`);
+    } catch (_) { /* shown by api() */ }
+  });
   $("#btn-home").addEventListener("click", async () => {
     log("homing…");
     await api("/api/home").then(() => log("homed")).catch(() => {});
   });
   $("#btn-estop").addEventListener("click", estop);
+  $("#btn-connect").addEventListener("click", connectMachine);
   $("#btn-reset").addEventListener("click", () => api("/api/reset").then(() => log("E-stop reset")));
   $("#btn-leds").addEventListener("click", () => toggleOutput("leds"));
+  $("#log-clear").addEventListener("click", clearLog);
 
   $("#goto").addEventListener("submit", async (ev) => {
     ev.preventDefault();
@@ -397,6 +573,7 @@ function initControls() {
   const toggles = $("#toggles");
   for (const [name, label] of Object.entries(OUTPUT_LABELS)) {
     const b = document.createElement("button");
+    b.className = "btn";
     b.dataset.out = name;
     b.textContent = label;
     b.addEventListener("click", () => toggleOutput(name));
@@ -408,6 +585,100 @@ function initControls() {
   }
 }
 
+async function connectMachine() {
+  const b = $("#btn-connect");
+  b.disabled = true;
+  log("connecting to the machine…");
+  try {
+    await api("/api/machine/reconnect");
+  } catch (_) {
+    b.disabled = false;
+    return;
+  }
+  // Re-enable after a while if the machine still does not answer; render()
+  // re-enables it (and logs) as soon as the link is up.
+  setTimeout(() => {
+    if (b.disabled && !(state && state.connected)) {
+      b.disabled = false;
+      log(`still not connected${state && state.link_error ? ": " + state.link_error : ""}`, true);
+    }
+  }, 8000);
+}
+
+// ------------------------------------------------------------------ confirmation dialog
+
+// In-page replacement for window.confirm(): the Claude browser pane (and some kiosk
+// browsers) suppress native dialogs, which made confirm() silently return false.
+// A machine.yaml default from the Defaults tab (defaults.js loads after this file,
+// so this works before it has loaded too, falling back to the given value).
+function configDefault(section, key, fallback) {
+  return typeof machineDefault === "function" ? machineDefault(section, key, fallback) : fallback;
+}
+
+function askConfirm(message, okLabel = "OK") {
+  return new Promise((resolve) => {
+    const box = $("#confirm");
+    const ok = $("#confirm-ok");
+    const cancel = $("#confirm-cancel");
+    $("#confirm-msg").textContent = message;
+    ok.textContent = okLabel;
+    const finish = (answer) => {
+      box.hidden = true;
+      ok.removeEventListener("click", onOk);
+      cancel.removeEventListener("click", onCancel);
+      resolve(answer);
+    };
+    const onOk = () => finish(true);
+    const onCancel = () => finish(false);
+    ok.addEventListener("click", onOk);
+    cancel.addEventListener("click", onCancel);
+    box.hidden = false;
+    ok.focus();
+  });
+}
+
+// ------------------------------------------------------------------ alarm popup
+
+function renderAlarm(s) {
+  const a = s.alarm;
+  const box = $("#alarm");
+  if (!a) {
+    box.hidden = true;
+    return;
+  }
+  const wasHidden = box.hidden;
+  box.hidden = false;
+  $("#alarm-title span").textContent = a.title || "Alarm";
+  $("#alarm-msg").textContent = a.message || "";
+  const sensor = s.needle_sensor || "unknown";
+  const sensorEl = $("#alarm-sensor");
+  sensorEl.textContent = sensor.toUpperCase();
+  sensorEl.className = sensor;
+  $("#alarm-silence").disabled = !!a.silenced;
+  $("#alarm-silence").textContent = a.silenced ? "Buzzer silenced" : "Silence buzzer";
+  if (wasHidden) {
+    log(`ALARM: ${a.title}`, true);
+    $("#alarm-clear").focus();
+  }
+}
+
+async function alarmAction(path, label) {
+  try {
+    await api(path);
+    log(label);
+  } catch (_) { /* shown by api() */ }
+}
+
+function initAlarm() {
+  $("#alarm-clear").addEventListener("click", () => alarmAction("/api/alarm/clear", "alarm: clear and continue"));
+  $("#alarm-silence").addEventListener("click", () => alarmAction("/api/alarm/silence", "alarm: buzzer silenced"));
+  $("#alarm-abort").addEventListener("click", async () => {
+    if (await askConfirm("Abort the action that is waiting on the needle?", "Abort")) {
+      alarmAction("/api/alarm/abort", "alarm: aborted");
+    }
+  });
+}
+
 function estop() {
   log("E-STOP", true);
   api("/api/estop").catch(() => {});
@@ -416,7 +687,7 @@ function estop() {
 function initKeys() {
   document.addEventListener("keydown", (ev) => {
     if (ev.key === "Escape") return estop();
-    if (ev.target.closest("input")) return;
+    if (ev.target.closest("input, select, textarea")) return;
     if (!state || state.busy || ev.repeat) return;
     const map = {
       ArrowUp: () => jog("y", 1), ArrowDown: () => jog("y", -1),
@@ -441,9 +712,26 @@ function selectedFeeder() {
   return feeders.find((f) => f.id === selectedId) || null;
 }
 
+// Feed direction select: +X/−X/+Y/−Y. A feeder saved with an angled direction gets an
+// extra "Custom" option holding its exact vector, so saving the form doesn't change it.
+function setDirection(dir) {
+  const sel = field("direction");
+  sel.querySelector("option[data-custom]")?.remove();
+  const [dx, dy] = dir.map((v) => Math.round(v * 1000) / 1000);
+  const value = `${dx},${dy}`;
+  if (![...sel.options].some((o) => o.value === value)) {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.dataset.custom = "";
+    opt.textContent = `Custom (${dx}, ${dy})`;
+    sel.append(opt);
+  }
+  sel.value = value;
+}
+
 function fillForm(f) {
   const d = f || { id: "", name: "", kind: "strip", pick: [0, 0], direction: [1, 0], pitch: 4, count: 0,
-                   capacity: null, rotation: 0, pick_depth: 3, prick: null, needs_feed: true,
+                   capacity: null, rotation: 0, pick_depth: configDefault("head", "pick_depth", 3), prick: null, needs_feed: true,
                    enabled: true, value: "", package: "" };
   const set = (name, v) => { field(name).value = v ?? ""; };
   set("id", d.id);
@@ -452,8 +740,7 @@ function fillForm(f) {
   set("kind", d.kind);
   set("pick_x", round3(d.pick[0]));
   set("pick_y", round3(d.pick[1]));
-  set("dir_x", round3(d.direction[0]));
-  set("dir_y", round3(d.direction[1]));
+  setDirection(d.direction);
   set("pitch", round3(d.pitch));
   set("count", d.count);
   set("capacity", d.capacity);
@@ -491,7 +778,7 @@ function readFeederForm() {
     name: text("name"),
     kind: text("kind"),
     pick: [num("pick_x", "pick X"), num("pick_y", "pick Y")],
-    direction: [num("dir_x", "direction X"), num("dir_y", "direction Y")],
+    direction: field("direction").value.split(",").map(Number),
     pitch: num("pitch", "pitch"),
     count: Math.trunc(num("count", "count")),
     capacity: text("capacity") === "" ? null : Math.trunc(num("capacity", "capacity")),
@@ -502,6 +789,9 @@ function readFeederForm() {
     enabled: field("enabled").checked,
     value: text("value"),
     package: text("package"),
+    // Bank membership is not edited in this form: send back what the server has.
+    bank: (selectedFeeder() || {}).bank || "",
+    lane: (selectedFeeder() || {}).lane ?? null,
   };
   return { id, body };
 }
@@ -514,10 +804,10 @@ function feederChips(f) {
     s.textContent = text;
     chips.push(s);
   };
-  if (!f.enabled) add("disabled", "idle");
-  if (f.kind === "drag" && f.needs_feed) add("needs feed", "warn");
-  if (f.remaining === 0) add("empty", "bad");
-  if (!chips.length) add("ready", "ok");
+  if (!f.enabled) add("Disabled", "idle");
+  if (f.kind === "drag" && f.needs_feed) add("Needs feed", "warn");
+  if (f.remaining === 0) add("Empty", "bad");
+  if (!chips.length) add("Ready", "ok");
   return chips;
 }
 
@@ -537,7 +827,8 @@ function renderFeederTable() {
     const loc = `(${f.pick_location[0].toFixed(2)}, ${f.pick_location[1].toFixed(2)})`;
     const status = document.createElement("td");
     status.append(...feederChips(f));
-    tr.append(cell(f.id), cell(f.name || "–"), cell(f.kind), cell(f.pitch), cell(count),
+    tr.append(cell(f.id), cell(f.name || "–"), cell(f.bank ? `${f.bank} · ${f.lane ?? "–"}` : "–"),
+              cell(f.kind), cell(f.pitch), cell(count),
               cell(loc, "mono"), status);
     tr.addEventListener("click", () => selectFeeder(f.id));
     return tr;
@@ -557,6 +848,43 @@ function newFeeder() {
   fillForm(null);
   renderFeederTable();
   updateFeederButtons();
+}
+
+// Export / import the whole feeder configuration (feeders + banks + layouts).
+function exportFeeders() {
+  // A plain link download: the server names the file feeders-<date>.yaml.
+  const a = document.createElement("a");
+  a.href = "/api/feeders/export";
+  a.download = "";
+  document.body.append(a);
+  a.click();
+  a.remove();
+  log("feeders exported");
+}
+
+async function importFeeders(ev) {
+  const file = ev.target.files && ev.target.files[0];
+  ev.target.value = "";  // allow picking the same file again
+  if (!file) return;
+  const merge = $("#import-merge").checked;
+  const reset = $("#import-reset").checked;
+  const what = merge
+    ? `Merge "${file.name}" into the current feeders? Feeders and banks in the file are added or updated; others are kept.`
+    : `Replace ALL current feeders and banks with "${file.name}"? Feeders not in the file are removed.`;
+  if (!await askConfirm(`${what}${reset ? "\n\nPart counts will be reset (fresh tape)." : ""}`,
+                        merge ? "Merge" : "Replace all")) return;
+  let content;
+  try {
+    content = await file.text();
+  } catch (err) {
+    showError(`Couldn't read ${file.name}: ${err.message}`);
+    return;
+  }
+  await feederAction(`Import ${file.name}`, async () => {
+    const res = await api("/api/feeders/import", { content, mode: merge ? "merge" : "replace", reset_counts: reset });
+    if (typeof refreshBanks === "function") await refreshBanks();
+    return res;
+  });
 }
 
 async function refreshFeeders() {
@@ -581,10 +909,22 @@ async function loadHead() {
   }
   const h = headState.holding || {};
   $("#holding").textContent = [1, 2].map((n) => `N${n} ${h[n] ? h[n] : "empty"}`).join(" · ");
+  const last = headState.last_inspection || {};
+  $("#inspections").replaceChildren(...[1, 2].map((n) => {
+    const row = elem("div", "inspection");
+    const insp = last[n];
+    if (insp) row.append(...inspectionParts(insp));
+    else row.append(elem("span", "node", `N${n}`), elem("span", "detail", "Not inspected yet"));
+    return row;
+  }));
   updateFeederButtons();
 }
 
 function describeFeederResult(res) {
+  if (res && res.imported_feeders !== undefined) {
+    return `${res.imported_feeders} feeders and ${res.imported_banks} banks imported ` +
+           `(now ${res.feeders} feeders, ${res.banks} banks)`;
+  }
   if (res && res.pick_location) {
     const left = res.remaining == null ? "" : `, ${res.remaining} left`;
     return `${res.id} count ${res.count}${left}`;
@@ -602,8 +942,13 @@ async function feederAction(label, fn) {
     const res = await fn();
     log(`${label}: ${describeFeederResult(res)}`);
     if (res && res.id !== undefined && res.id === selectedId) fillForm(res);
-  } catch (_) {
-    /* api() has already logged the error and shown the banner */
+  } catch (err) {
+    // api() errors are already logged and shown; input errors (e.g. a bad
+    // number in the place target) are not.
+    if (!err.shown) {
+      log(`${label}: ${err.message}`, true);
+      showError(err.message);
+    }
   } finally {
     feederBusy = false;
     await Promise.all([refreshFeeders(), loadHead()]);
@@ -627,14 +972,74 @@ async function saveFeeder() {
   });
 }
 
+// In-page confirmation (window.confirm is blocked in some browsers and webviews,
+// where it returns false at once). Resolves true only for the confirm button.
+function confirmDialog({ title, body, confirmLabel }) {
+  const dlg = $("#confirm");
+  $("#confirm-title").textContent = title;
+  $("#confirm-body").textContent = body;
+  $("#confirm-ok").textContent = confirmLabel;
+  dlg.returnValue = "cancel";
+  return new Promise((resolve) => {
+    dlg.addEventListener("close", () => resolve(dlg.returnValue === "ok"), { once: true });
+    dlg.showModal();
+  });
+}
+
 async function deleteFeeder() {
   const id = selectedId;
-  if (id === null || !confirm(`Delete feeder ${id} from the feeder file?`)) return;
+  if (id === null) return;
+  const ok = await confirmDialog({
+    title: `Delete feeder '${id}'?`,
+    body: "It is removed from the feeder file. This can't be undone.",
+    confirmLabel: "Delete feeder",
+  });
+  if (!ok) return;
   await feederAction(`Delete ${id}`, async () => {
     await api(fpath(id), undefined, "DELETE");
     selectedId = null;
     fillForm(null);
     return { ok: true };
+  });
+}
+
+// Manual place target on the Feeders tab: empty X/Y = the camera crosshair,
+// empty depth = the configured default place depth.
+function placeTarget() {
+  const num = (id) => {
+    const raw = $(id).value.trim();
+    if (raw === "") return null;
+    const v = Number(raw);
+    if (!Number.isFinite(v)) throw new Error(`${$(id).closest("label").textContent.trim()} is not a number`);
+    return v;
+  };
+  return { x: num("#pt-x"), y: num("#pt-y"), rotation: num("#pt-rot") ?? 0, depth: num("#pt-depth") };
+}
+
+function initVisionSwitch() {
+  const show = () => {
+    for (const x of $$("#vision-sel button")) x.classList.toggle("sel", (x.dataset.vision === "on") === feederVision);
+  };
+  for (const b of $$("#vision-sel button")) {
+    b.addEventListener("click", () => {
+      feederVision = b.dataset.vision === "on";
+      try { localStorage.setItem("feederVision", feederVision ? "on" : "off"); } catch (_) { /* ignore */ }
+      show();
+      log(`Vision check for manual picks: ${feederVision ? "on" : "off"}`);
+    });
+  }
+  show();
+}
+
+function initPlaceTarget() {
+  $("#pt-use-crosshair").addEventListener("click", () => {
+    if (!state) return;
+    $("#pt-x").value = state.position.x.toFixed(3);
+    $("#pt-y").value = state.position.y.toFixed(3);
+  });
+  $("#pt-clear").addEventListener("click", () => {
+    $("#pt-x").value = "";
+    $("#pt-y").value = "";
   });
 }
 
@@ -659,19 +1064,29 @@ function updateFeederButtons() {
     b.disabled = !idle || (act.needs && selectedId === null);
   }
   for (const b of $$("#nozzle-sel button")) b.disabled = feederBusy;
+  for (const b of $$("#vision-sel button")) b.disabled = feederBusy;
   $("#feeder-new").disabled = feederBusy;
-  $("#feeder-delete").disabled = !idle || selectedId === null;
-  $("#feeder-form button[type=submit]").disabled = !idle;
+  $("#feeder-import").disabled = feederBusy;
+  // Saving and deleting only edit the feeder file: no homing or connection needed.
+  // They wait only while a feeder action runs (the server refuses while the head is busy).
+  const fileBusy = feederBusy || headBusy;
+  $("#feeder-delete").disabled = fileBusy || selectedId === null;
+  $("#feeder-form button[type=submit]").disabled = fileBusy;
   let hint = "Select a feeder in the table, or press New feeder.";
   if (!state || !state.connected) hint = "Not connected to the machine.";
   else if (!state.homed) hint = "Home the machine first (Machine tab) before teaching or moving.";
   else if (selectedId === null) hint = "New feeder: fill in the form and press Save.";
   else if (sel) hint = `${sel.id} · ${sel.kind} · ${sel.name || "unnamed"}`;
   $("#feeder-selected").textContent = hint;
+  // banks.js loads after this script; the check covers calls made before it runs.
+  if (typeof updateBankButtons === "function") updateBankButtons();
 }
 
 function initFeeders() {
   $("#feeder-new").addEventListener("click", newFeeder);
+  $("#feeder-export").addEventListener("click", exportFeeders);
+  $("#feeder-import").addEventListener("click", () => $("#feeder-import-file").click());
+  $("#feeder-import-file").addEventListener("change", importFeeders);
   $("#feeder-delete").addEventListener("click", deleteFeeder);
   $("#feeder-form").addEventListener("submit", (ev) => {
     ev.preventDefault();
@@ -695,9 +1110,41 @@ function initFeeders() {
   }, 2000);
 }
 
+// ------------------------------------------------------------------ theme
+
+function applyTheme(choice) {
+  if (choice === "dark" || choice === "light") document.documentElement.setAttribute("data-theme", choice);
+  else document.documentElement.removeAttribute("data-theme");
+  for (const b of $$("[data-theme-choice]")) {
+    const on = b.dataset.themeChoice === choice;
+    b.classList.toggle("sel", on);
+    b.setAttribute("aria-checked", String(on));
+  }
+}
+
+function initTheme() {
+  let saved = "system";
+  try { saved = localStorage.getItem("theme") || "system"; } catch (_) { /* storage blocked */ }
+  applyTheme(saved);
+  for (const b of $$("[data-theme-choice]")) {
+    b.addEventListener("click", () => {
+      const choice = b.dataset.themeChoice;
+      try {
+        if (choice === "system") localStorage.removeItem("theme");
+        else localStorage.setItem("theme", choice);
+      } catch (_) { /* storage blocked: applies for this visit only */ }
+      applyTheme(choice);
+    });
+  }
+}
+
+initTheme();
 initStepGroups();
 initControls();
 initFeeders();
+initPlaceTarget();
+initAlarm();
+initVisionSwitch();
 initViews();
 initSetup();
 initKeys();

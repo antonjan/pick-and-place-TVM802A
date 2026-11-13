@@ -58,6 +58,8 @@ class Feeder:
     enabled: bool = True
     value: str = ""                  # part value / package, matched against jobs later
     package: str = ""
+    bank: str = ""                   # id of the bank this lane belongs to; "" = loose feeder
+    lane: int | None = None          # 1-based lane number within the bank
 
     def __post_init__(self) -> None:
         self.pick = _pair(self.pick, "pick")
@@ -109,7 +111,7 @@ class Feeder:
 _FEEDER_KEYS = {f.name for f in dataclasses.fields(Feeder)}
 
 
-def _feeder_to_dict(f: Feeder) -> dict[str, Any]:
+def feeder_to_dict(f: Feeder) -> dict[str, Any]:
     out: dict[str, Any] = {}
     for fld in dataclasses.fields(Feeder):
         value = getattr(f, fld.name)
@@ -117,7 +119,7 @@ def _feeder_to_dict(f: Feeder) -> dict[str, Any]:
     return out
 
 
-def _feeder_from_dict(entry: Any) -> Feeder:
+def feeder_from_dict(entry: Any) -> Feeder:
     if not isinstance(entry, dict):
         raise ValueError(f"feeder entry must be a mapping, got {entry!r}")
     unknown = set(entry) - _FEEDER_KEYS
@@ -128,6 +130,11 @@ def _feeder_from_dict(entry: Any) -> Feeder:
     feeder = Feeder(**entry)
     feeder.validate()
     return feeder
+
+
+# Old private names, kept for existing callers.
+_feeder_to_dict = feeder_to_dict
+_feeder_from_dict = feeder_from_dict
 
 
 class FeederStore:
@@ -167,8 +174,37 @@ class FeederStore:
         del self._feeders[id]
         self.save()
 
+    def by_bank(self, bank: str) -> list[Feeder]:
+        """Feeders of one bank, ordered by lane number then id."""
+        found = [f for f in self._feeders.values() if f.bank == bank]
+        return sorted(found, key=lambda f: (f.lane is None, f.lane or 0, f.id))
+
+    def replace_bank(self, bank: str, feeders: list[Feeder]) -> None:
+        """Swap all lanes of `bank` for `feeders`. Nothing changes if any check fails."""
+        new_ids: set[str] = set()
+        for f in feeders:
+            f.validate()
+            if f.bank != bank:
+                raise ValueError(f"feeder {f.id}: bank must be {bank!r}, got {f.bank!r}")
+            if f.id in new_ids:
+                raise ValueError(f"duplicate feeder id {f.id!r} in bank {bank!r}")
+            new_ids.add(f.id)
+        for existing in self._feeders.values():
+            if existing.id in new_ids and existing.bank != bank:
+                raise ValueError(f"feeder id {existing.id!r} is already used by another feeder")
+        for old in self.by_bank(bank):
+            del self._feeders[old.id]
+        for f in feeders:
+            self._feeders[f.id] = f
+        self.save()
+
+    def delete_bank(self, bank: str) -> None:
+        for old in self.by_bank(bank):
+            del self._feeders[old.id]
+        self.save()
+
     def save(self) -> None:
-        data = {"feeders": [_feeder_to_dict(f) for f in self._feeders.values()]}
+        data = {"feeders": [feeder_to_dict(f) for f in self._feeders.values()]}
         self.path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=str(self.path.parent), prefix=self.path.name + ".", suffix=".tmp")
         try:

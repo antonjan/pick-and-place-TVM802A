@@ -14,6 +14,7 @@ from pnp.api.errors import status_for
 from pnp.job.feeders import Feeder, FeederError, FeederStore
 from pnp.job.head_ops import HeadOps, NotCalibrated, PickError
 from pnp.machine.machine import MachineError
+from pnp.vision.bottom import InspectError, inspect_nozzle
 
 
 class FeederIn(BaseModel):
@@ -33,14 +34,20 @@ class FeederIn(BaseModel):
     enabled: bool = True
     value: str = ""
     package: str = ""
+    bank: str | None = None  # None = keep the feeder's current bank and lane (loose for a new feeder)
+    lane: int | None = None
 
 
 class PickReq(BaseModel):
     nozzle: int
+    vision: bool = True  # inspect on the up camera after picking (Feeders tab switch)
 
 
 class PickAndPlaceReq(BaseModel):
     nozzle: int
+    vision: bool = True  # inspect on the up camera after picking (Feeders tab switch)
+    x: float | None = None  # default: current head (camera centre) X
+    y: float | None = None  # default: current head (camera centre) Y
     rotation: float = 0.0
     depth: float | None = None
 
@@ -57,6 +64,10 @@ class DiscardReq(BaseModel):
     nozzle: int
 
 
+class InspectReq(BaseModel):
+    nozzle: int
+
+
 @contextlib.contextmanager
 def _mapped() -> Iterator[None]:
     """Translate feeder/head/machine errors into HTTP status codes."""
@@ -67,6 +78,8 @@ def _mapped() -> Iterator[None]:
     except PickError as exc:
         raise HTTPException(422, str(exc)) from exc
     except NotCalibrated as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except InspectError as exc:
         raise HTTPException(409, str(exc)) from exc
     except MachineError as exc:
         raise HTTPException(status_for(exc), str(exc)) from exc
@@ -84,11 +97,27 @@ def feeder_json(f: Feeder) -> dict:
     return out
 
 
+def make_inspector(app: FastAPI, machine):
+    """The head's inspector: measures from the "up" camera, or None when there is no up camera.
+
+    The camera and the up calibration are read at call time (the calibration can change).
+    """
+    cameras = getattr(app.state, "cameras", None)
+    if cameras is None or "up" not in cameras.names():
+        return None
+
+    async def inspector(nozzle: int):
+        return await inspect_nozzle(machine, cameras.get("up"), app.state.calibration.A("up"),
+                                    nozzle, machine.cfg.vision)
+
+    return inspector
+
+
 def add_feeder_routes(app: FastAPI, machine, feeders_path: Path) -> None:
-    """Must run after add_vision_routes (uses app.state.calibration)."""
+    """Must run after add_vision_routes (uses app.state.calibration and app.state.cameras)."""
     calibration = app.state.calibration
     store = FeederStore(feeders_path)
-    head = HeadOps(machine, calibration, machine.cfg.head, store)
+    head = HeadOps(machine, calibration, machine.cfg.head, store, inspector=make_inspector(app, machine))
     app.state.feeders = store
     app.state.head = head
 
@@ -97,6 +126,10 @@ def add_feeder_routes(app: FastAPI, machine, feeders_path: Path) -> None:
             raise HTTPException(409, "home the machine first")
 
     def idle() -> None:
+        """Refuse feeder and head moves while a job runs or the head is busy."""
+        runner = getattr(app.state, "runner", None)
+        if runner is not None and runner.busy():
+            raise HTTPException(409, "job running")
         if head.busy:
             raise HTTPException(409, f"head busy ({head.busy})")
 
@@ -135,8 +168,16 @@ def add_feeder_routes(app: FastAPI, machine, feeders_path: Path) -> None:
     @app.put("/api/feeders/{id}")
     async def put_feeder(id: str, body: FeederIn):
         idle()
+        fields = body.model_dump()
+        if fields["bank"] is None:
+            # Editing a lane in the feeder form must not detach it from its bank.
+            with contextlib.suppress(FeederError):
+                old = store.get(id)
+                fields["bank"], fields["lane"] = old.bank, old.lane
+            if fields["bank"] is None:
+                fields["bank"], fields["lane"] = "", None
         with _mapped():
-            feeder = Feeder(id=id, **body.model_dump())
+            feeder = Feeder(id=id, **fields)
             store.upsert(feeder)
         return feeder_json(feeder)
 
@@ -183,6 +224,7 @@ def add_feeder_routes(app: FastAPI, machine, feeders_path: Path) -> None:
 
     @app.post("/api/feeders/{id}/feed")
     async def feed(id: str):
+        idle()
         feeder = get_feeder(id)
         with _mapped():
             await head.feed(feeder)
@@ -191,10 +233,11 @@ def add_feeder_routes(app: FastAPI, machine, feeders_path: Path) -> None:
     @app.post("/api/feeders/{id}/pick")
     async def pick(id: str, req: PickReq):
         nozzle_no(req.nozzle)
+        idle()
         feeder = get_feeder(id)
         with _mapped():
             reach(req.nozzle, feeder.pick_location())
-            await head.pick(req.nozzle, feeder)
+            await head.pick(req.nozzle, feeder, vision=req.vision)
         return feeder_json(feeder)
 
     @app.post("/api/feeders/{id}/pick-and-place")
@@ -203,18 +246,33 @@ def add_feeder_routes(app: FastAPI, machine, feeders_path: Path) -> None:
         feeder = get_feeder(id)
         need_homed()
         idle()
-        target = head_xy()  # the camera crosshair, captured now
+        cx, cy = head_xy()  # the camera crosshair, captured now, unless x/y are given
+        target = (cx if req.x is None else req.x, cy if req.y is None else req.y)
         with _mapped():
             reach(req.nozzle, feeder.pick_location())
             reach(req.nozzle, target)
-            await head.pick_and_place(req.nozzle, feeder, target, req.rotation, req.depth)
+            await head.pick_and_place(req.nozzle, feeder, target, req.rotation, req.depth,
+                                      vision=req.vision)
         return feeder_json(feeder)
 
     # ------------------------------------------------------------ head
 
     @app.get("/api/head")
     async def get_head():
-        return {"busy": head.busy, "holding": holding()}
+        return {"busy": head.busy, "holding": holding(), "last_inspection": head.inspection_json()}
+
+    @app.post("/api/head/inspect")
+    async def inspect_part(req: InspectReq):
+        nozzle_no(req.nozzle)
+        need_homed()
+        idle()
+        if head.inspector is None:
+            raise HTTPException(409, "no up camera: bottom vision needs an 'up' camera")
+        if req.nozzle not in app.state.calibration.up_position:
+            raise HTTPException(409, f"nozzle {req.nozzle} has no up position: calibrate the up camera first")
+        with _mapped():
+            result = await head.inspect(req.nozzle)
+        return dataclasses.asdict(result)
 
     @app.post("/api/head/place")
     async def place(req: PlaceReq):
@@ -232,6 +290,7 @@ def add_feeder_routes(app: FastAPI, machine, feeders_path: Path) -> None:
     @app.post("/api/head/discard")
     async def discard(req: DiscardReq):
         nozzle_no(req.nozzle)
+        idle()
         with _mapped():
             await head.discard(req.nozzle)
         return {"holding": holding()}
