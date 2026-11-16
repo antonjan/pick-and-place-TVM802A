@@ -85,6 +85,15 @@ class PartIn(BaseModel):
     nozzle: int | None = None
     feeder: str | None = None
     vision: bool | None = None   # None = follow PackageRules.vision_for
+    # Placement on the board (file coordinates); None = unchanged
+    x: float | None = None
+    y: float | None = None
+    rotation: float | None = None
+
+
+class PartsEnableIn(BaseModel):
+    refs: list[str]          # part references (all boards)
+    enabled: bool            # False = left out of runs (JobPart.skip) until enabled again
 
 
 class ReferencePointIn(BaseModel):
@@ -313,7 +322,8 @@ def add_job_routes(app: FastAPI, machine, job_path: Path, rules_path: Path) -> N
     @app.post("/api/job/align/two-points")
     async def align_two_points(body: TwoPointIn):
         """Board origin AND rotation from two reference points recorded with the camera."""
-        from pnp.job.job import fit_two_points
+        from pnp.job.job import (check_distances, check_reference_point, fit_two_points,
+                                 placements_outside)
 
         idle()
         need_homed()
@@ -323,12 +333,23 @@ def add_job_routes(app: FastAPI, machine, job_path: Path, rules_path: Path) -> N
         a_panel = _panel_point(job, body.board, body.a.x, body.a.y)
         b_panel = _panel_point(job, body.board, body.b.x, body.b.y)
         try:
+            check_reference_point(job, "Point 1", body.a.x, body.a.y)
+            check_reference_point(job, "Point 2", body.b.x, body.b.y)
             result = fit_two_points(a_panel, (body.a.world_x, body.a.world_y),
                                     b_panel, (body.b.world_x, body.b.world_y))
+            check_distances(result)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
+        old = (job.origin, job.rotation)
         job.origin = (result["origin"][0], result["origin"][1])
         job.rotation = result["rotation"]
+        lim = machine.cfg.limits
+        outside = placements_outside(job, lim.x, lim.y)
+        if outside:
+            job.origin, job.rotation = old  # not saved: keep the previous board position
+            first = ", ".join(f"{r} at X {x:.1f}, Y {y:.1f}" for r, x, y in outside[:3])
+            raise HTTPException(400, f"with these points {len(outside)} part(s) would land outside the machine "
+                                     f"({first}). Check both points' board X/Y and their camera captures.")
         job.references = [{"ref": p.ref or None, "x": p.x, "y": p.y} for p in (body.a, body.b)]
         job.reference_board = body.board
         clear_fit(job)
@@ -387,6 +408,44 @@ def add_job_routes(app: FastAPI, machine, job_path: Path, rules_path: Path) -> N
         part.nozzle = body.nozzle
         part.feeder = body.feeder or None
         part.vision = body.vision
+        for name in ("x", "y", "rotation"):
+            value = getattr(body, name)
+            if value is not None:
+                if not math.isfinite(value):
+                    raise HTTPException(400, f"{name} must be a number")
+                setattr(part, name, float(value) % 360.0 if name == "rotation" else float(value))
+        jobs.save(job)
+        return state_json()
+
+    @app.post("/api/job/parts/enable")
+    async def enable_parts(body: PartsEnableIn):
+        """Enable or disable several parts at once (the Parts table's bulk buttons).
+        A disabled part stays in the job but is not placed until it is enabled again."""
+        running()
+        job = need_job()
+        wanted = set(body.refs)
+        found = {p.ref for p in job.parts} & wanted
+        missing = sorted(wanted - found)
+        if missing:
+            raise HTTPException(404, f"no part(s) {', '.join(missing)} in the job")
+        for part in job.parts:
+            if part.ref in wanted:
+                part.skip = not body.enabled
+        jobs.save(job)
+        return state_json()
+
+    @app.delete("/api/job/parts/{ref}")
+    async def delete_part(ref: str):
+        """Remove a part from the job on every board, with its placement statuses. A
+        reference point that used the part keeps its board X/Y as a custom point."""
+        running()
+        job = need_job()
+        part = find_part(job, ref)
+        job.parts.remove(part)
+        job.status = {k: v for k, v in job.status.items() if k.split(":", 1)[-1] != ref}
+        for point in job.references:
+            if point.get("ref") == ref:
+                point["ref"] = None
         jobs.save(job)
         return state_json()
 
@@ -509,6 +568,15 @@ def add_job_routes(app: FastAPI, machine, job_path: Path, rules_path: Path) -> N
     async def resume_job():
         try:
             await runner.resume()
+        except JobError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        return runner.status()
+
+    @app.post("/api/job/step")
+    async def step_job():
+        """Step mode: run the next stage of the job (the first call starts the job)."""
+        try:
+            await runner.step()
         except JobError as exc:
             raise HTTPException(409, str(exc)) from exc
         return runner.status()

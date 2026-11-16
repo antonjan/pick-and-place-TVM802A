@@ -50,6 +50,8 @@ The application also has a simulator. Use the simulator to learn the application
 - When a job runs, the application blocks manual commands (jog, outputs, homing, calibration, settings). Only E-stop, Reset E-stop, the alarm buttons and the job controls stay available.
 - **Needle interlock:** when the feeder needle is down, X and Y do not move and homing is not possible. There are two exceptions: the drag during a feed, and the **Prick needle offset** step on the Setup tab. The application reads the needle position from the needle sensor.
 - **Stuck needle alarm:** if the needle does not go up after a feed, the buzzer starts and an alarm window opens. Nothing moves until the needle is free (see [7.8](#78-clear-a-stuck-needle-alarm)).
+- **Front panel keys:** the keys on the machine front panel use the same checks as the web interface (see [7.11](#711-use-the-front-panel-keys)). In ConMove mode, the head moves while you hold an arrow key. If the network connection stops during this move, the head continues to the soft limit.
+- **Pump:** the application turns the pump off when a job stops or is complete.
 
 ---
 
@@ -205,8 +207,9 @@ This is the usual sequence for a work session. The sections that follow give the
 4. Make sure that the two nozzles are level. If they are not, see [7.9](#79-set-the-z-zero).
 5. Install the feeder stacks. On the Feeders tab, load the layout of each stack, or import a feeder file (see [7.3](#73-change-a-stack) and [7.4](#74-export-and-import-the-feeders)).
 6. On the Job tab, import the KiCad position file and set the board with two reference points (see [7.6](#76-run-a-job)).
-7. Do one test pick and place on the Feeders tab if you changed a feeder.
-8. Click **Start job**.
+7. Click **Go to** on one part in the **Parts** table. Make sure that the crosshair is on the part position.
+8. Do one test pick and place on the Feeders tab if you changed a feeder. Make sure that the part rotation is correct (see [7.13](#713-set-the-rotation-of-a-feeder)).
+9. Click **Start job**, or press **Step** to place the first part one stage at a time (see [7.12](#712-run-a-job-one-stage-at-a-time)).
 
 ---
 
@@ -220,6 +223,9 @@ The bar at the top is always on the screen. It does not scroll. It shows:
 - **Connect**: this button shows when the machine is not connected. Click it to connect again, for example after you turn the machine off and on.
 - The **E-stop** button.
 - The **camera views**: the down camera (left) and the up camera (right). Each view has a crosshair and shows the frame rate. Click a point in a view to move the head to that point (the camera must be calibrated). **Up LEDs** turns the up camera lights on and off.
+- **Detect** (on each camera view): shows what the camera detects in the live image. It does not move the machine.
+  - **Down camera:** the yellow broken rings show the smallest and the largest mark size (the **Mark Ø** on the Job tab). The green circle and cross show the mark that **Centre on mark** goes to. The text below the view shows the diameter of the mark.
+  - **Up camera:** the yellow broken circle shows the search radius around the nozzle. The green rectangle shows the outline of the part that bottom vision measures. The text below the view shows the size, the angle and the offset of the part. Turn on **Up LEDs** to see what an inspection sees.
 
 ### 6.1 Machine tab
 
@@ -230,7 +236,8 @@ Use the Machine tab for manual control. The tab has three columns: position, jog
 - **Go to:** moves the head to an X/Y position. You must home the machine first.
 - **Home machine:** homes Y, then X.
 - **Jog:** moves X and Y by the selected step (0.01 mm to 50 mm). **Raise** lifts the two nozzles.
-- **Nozzles:** lowers and lifts each nozzle by the selected Z step. It also turns each nozzle by the selected angle, or back to 0°.
+  - **Panel keys:** **Dot (step)** or **Con (hold)**, the jog mode of the front panel arrow keys. The DotMove/ConMove key on the machine changes it too. The keys that you hold on the front panel show next to it.
+- **Nozzles:** lowers and lifts each nozzle by the selected Z step. It also turns each nozzle by the selected angle, clockwise or anticlockwise as seen from above, or back to 0°.
 - **Set Z zero here:** sets the current Z position as 0 (the two nozzle tips are level). This button does not move the machine (see [7.9](#79-set-the-z-zero)).
 - **Outputs:** turns the pump, vacuum, blow-off, feeder needle, LEDs and buzzer on and off.
 
@@ -259,14 +266,16 @@ Use the Setup tab to calibrate the cameras and the tools. Do the steps in sequen
 Use the Feeders tab to define feeders and to do manual picks.
 
 - **Banks:** a bank is a stack of tape lanes, for example the front stack or the back stack.
-  - **Generate lanes** makes all lanes of a bank from these data: the origin, the lane direction, the feed direction, the sprocket side, the tape width and the pitch of each lane.
+  - **Generate lanes** makes all lanes of a bank from these data: the origin, the lane direction, the feed direction, the sprocket side, the tape width, the pitch of each lane and the **Rotation offset** of the stack.
+  - **Apply rotation offset to all lanes** sets the rotation offset on the lanes of the bank. It does not make the lanes again.
   - **Save layout** keeps the lanes and the parts in the lanes with a name.
   - **Load layout** puts a saved layout back. Use this when you install a different stack.
 - **Feeders:** a table of all feeders. A feeder has a type:
   - **Strip:** a cut tape. The pick point moves one pitch for each part.
   - **Drag:** a tape that the needle moves. The pick point does not move.
 - **Export** and **Import…:** save all feeders, banks and layouts in one file, and load them again (see [7.4](#74-export-and-import-the-feeders)).
-- **Feeder form:** edit one feeder (value, package, pick point, feed direction, pitch, count, part rotation, pick depth, needle point). A new feeder gets the default pick depth from the Defaults tab.
+- **Feeder form:** edit one feeder (value, package, pick point, feed direction, pitch, count, rotation offset, pick depth, needle point). A new feeder gets the default pick depth from the Defaults tab.
+  - **Rotation offset °:** the application adds this angle to each part that it places from this feeder. Positive is anticlockwise. For example, −90 turns each part 90° clockwise. Use it when the tape holds the parts at a different angle than KiCad expects (see [7.13](#713-set-the-rotation-of-a-feeder)).
 - **Actions:**
   - **Nozzle:** N1 or N2 for the head actions.
   - **Vision check:** On or Off. With On, **Pick** and **Pick and place at target** inspect the part on the up camera.
@@ -280,19 +289,26 @@ Use the Feeders tab to define feeders and to do manual picks.
 
 Use the Job tab to place a full board or panel.
 
-- **Run:** **Start job**, **Pause**, **Resume**, **Stop** and **Reset statuses**. A progress bar and the counts of placed, failed and skipped parts.
+- **Run:** **Start job**, **Pause**, **Resume**, **Stop**, **Step** and **Reset statuses**. A progress bar and the counts of placed, failed and skipped parts.
+  - **Step** runs the job one stage at a time (see [7.12](#712-run-a-job-one-stage-at-a-time)). In step mode, the Run card shows the stage that the next press does.
+  - **Nozzles** shows what each nozzle holds. **Reset nozzles** turns the vacuum off, lifts the two nozzles and clears what they hold. Use it after a bad pick. The head does not move in X and Y.
 - **Import:** reads a KiCad position file (`.pos` or `.csv`).
 - **Board:** sets the board position and rotation from two **reference points** that you measure with the down camera (see [7.6](#76-run-a-job)).
+  - **Capture camera** puts the camera position in the machine position fields of the point.
+  - **Centre on mark** moves the camera to the centre of the round mark nearest to the crosshair (a hole, a cut-out, a pad or a fiducial). Then it captures the position. **Mark Ø** sets the size of the mark: 0.3–4 mm, 0.3–1.5 mm, 1–4 mm or 3–8 mm.
+  - The card shows the area of the parts in the coordinates of the file. The two points must be in these coordinates.
 - **Fiducials:** the fiducial marks of the board. The application measures them with the down camera and corrects the board origin and rotation (see [7.7](#77-use-fiducials)).
 - **Panel:** a grid of boards (rows, columns, step X, step Y). You can skip a bad board.
 - **Parts:** a table of all parts on all boards. For each part you can:
+  - Switch the part on or off (**On**). A part that is off stays in the job but is not placed, on all boards. It stays off after **Reset statuses**.
+  - Change its position and rotation in the file (**X mm**, **Y mm**, **Rot °**). The change applies to the part on all boards.
   - Select a different nozzle or a different feeder.
   - Set **Vision**: **Auto** (the nozzle rule decides), **On** or **Off**.
-  - Skip the part.
   - Move the camera to the part (**Go to**).
+  - Remove the part from the job (bin icon). To get it back, import the file again.
   - Set a placed or failed part back to "to do".
 
-  The **Problem** column shows why a part cannot be placed.
+  **Place at** shows the machine position of the part and the angle that the nozzle turns to (the part rotation plus the rotation offset of the feeder). The **Problem** column shows why a part cannot be placed. The **Disabled** filter shows only the parts that are off. **Enable shown** and **Disable shown** switch on or off all parts in the list.
 
 ### 6.5 Log tab
 
@@ -442,13 +458,20 @@ Procedure:
 3. In **Import**, select the file and click **Import file**.
 4. In **Panel**, set the rows, the columns and the step. Click **Make grid**. For one board, use 1 row and 1 column.
 5. Set the board with two reference points. In the **Board** card, find **Reference points**:
-   1. **Point 1 · origin:** the board position is 0, 0 (the KiCad origin). Change it if you use a different point. Move the down camera onto that point on the board. Click **Capture camera**. The machine position fields get the camera position (for example X 150, Y 100).
-   2. **Point 2:** type the board position of a second point (for example a mounting hole), or select a part to use its centre. Move the down camera onto that point. Click **Capture camera**.
-   3. Select the **Board** of the panel that you measured.
-   4. Click **Set board from points 1 and 2**.
-   5. Read the result. It compares the distance between the two points on the board with the measured distance. The two values must be almost the same.
+   1. For each point, type its **board position** in the coordinates of the file, or select a part to use its centre. Round holes or cut-outs are the most accurate points. Do not use the corners of the board: you cannot put the camera exactly on a corner.
+   2. Move the down camera near the point. Select the **Mark Ø** and click **Centre on mark**. For a point that is not round, put the crosshair on it and click **Capture camera**. The **machine position** fields get the camera position. Do not type the board position in the machine position fields.
+   3. Do steps 1 and 2 for **Point 2**. Use two points that are far apart, for example two holes in opposite corners. They must be at least 3 mm apart.
+   4. Select the **Board** of the panel that you measured.
+   5. Click **Set board from points 1 and 2**.
+   6. Read the result. It compares the distance between the two points on the board with the measured distance. The two values must be almost the same.
+   7. Click **Go to** on one part in the **Parts** table. Make sure that the crosshair is on the part.
 
-   Use two points that are far apart. They must be at least 3 mm apart. You can also type the machine positions.
+   The application does not set the board if:
+   - A point is more than 40 mm from all parts of the file. The message tells you why: for example, the Y of the file has the wrong sign, or 0, 0 is not on the board.
+   - The two distances are different by more than 1 mm (or 2 %).
+   - Parts would be outside the soft limits of the machine.
+
+   > **NOTE:** If you export the position file without the drill/place file origin, the file uses the page coordinates of KiCad. Then 0, 0 is the corner of the drawing sheet, not of the board. Also, KiCad shows Y as positive down the screen, but the file has the opposite sign. Take the positions from the file, or select a part.
 6. Look at the **Parts** table. Make sure that no part shows a problem. Skip a part, select a different feeder or set **Vision** if necessary.
 7. Click **Start job**.
 
@@ -457,8 +480,10 @@ The reference points are saved with the job. The machine positions are not saved
 During the job:
 
 - **Pause** stops the job after the current part.
-- **Stop** stops the job after the current part and goes back to idle.
+- **Stop** stops the job after the current part and goes back to idle. The pump goes off.
 - **Resume** continues from the next part.
+
+When the job is complete, the pump goes off.
 
 If a pick fails, the application tries the pick two more times. For a drag feeder, it moves the tape before each new try. After three failures, the application marks the part as failed and pauses the job.
 
@@ -549,6 +574,58 @@ After you save:
 - A change to the controller IP address or port needs a restart of the server.
 - After a change to steps per mm or to the homing registers, home the machine again.
 
+### 7.11 Use the front panel keys
+
+The keys on the machine front panel work when the application is connected. The application does the action, with the same checks as the web interface.
+
+| Key | Function |
+|---|---|
+| **X−**, **X+**, **Y+**, **Y−** | Jog the head. In **Dot** mode, one press moves one step (the X/Y step on the Machine tab). In **Con** mode, the head moves while you hold the key, but not past the soft limit. |
+| **DotMove/ConMove** | Changes the jog mode between Dot and Con. |
+| **Step** | Runs the job one stage at a time (see [7.12](#712-run-a-job-one-stage-at-a-time)). |
+| **Start/Stop** | Starts the job. If the job runs, is in step mode or is paused, it stops the job. |
+| **Pause/Cont** | Pauses the job. If the job is paused, it continues the job. |
+
+- When a job runs, the arrow keys do not move the head.
+- A key that is held when the application connects does not count. Release it and press it again.
+
+### 7.12 Run a job one stage at a time
+
+Use step mode to look at each stage of a placement, for example for a new feeder or a new board.
+
+1. Prepare the job as for a normal run (see [7.6](#76-run-a-job)).
+2. Press **Step** on the front panel, or click **Step** on the Run card of the Job tab. The job starts in step mode. If the fiducials are not measured, the application measures them first.
+3. Press **Step** again for each stage. The Run card shows the stage that the next press does.
+
+| Stage | Action |
+|---|---|
+| 1 | Moves the needle above the lane (drag feeder that must feed only) |
+| 2 | Lowers the needle and pulls the tape one pitch. The needle stays down. |
+| 3 | Lifts the needle |
+| 4 | Moves the nozzle above the part |
+| 5 | Lowers the nozzle onto the part (vacuum on) |
+| 6 | Lifts the nozzle with the part |
+| 7 | Moves the part to its position. If vision is on, it inspects the part on the up camera first. |
+| 8 | Places the part |
+
+After stage 8, the next press starts the next part. For a strip feeder, or a lane that does not have to feed, stages 1 to 3 are not done.
+
+- A press while a stage moves is not accepted.
+- **Stop** (or Start/Stop on the front panel) ends step mode. The application lifts the needle and the nozzles and turns the pump off. If a nozzle holds a part, the part falls where the head is. The application tells you to remove it.
+- If vision does not accept the part, the application discards it. The next press starts the same part again.
+
+### 7.13 Set the rotation of a feeder
+
+The tape holds each part at an angle that the tape standard sets. This angle can be different from the 0° angle of the part in KiCad. For example, an 0805 capacitor is across the tape. If the parts from a feeder are placed with an incorrect rotation, but at the correct position:
+
+1. Go to the Feeders tab and select the feeder.
+2. In **Rotation offset °**, type the angle that the parts need in addition. Positive is anticlockwise. For example, −90 turns each part 90° clockwise.
+3. Click **Save feeder**.
+
+For all lanes of a stack, type the angle in **Rotation offset °** of **Generate lanes** and click **Apply rotation offset to all lanes**.
+
+The **Place at** column of the **Parts** table shows the new nozzle angle. A different feeder can need a different offset. For a two-terminal part, +90 and −90 give the same result. For a polarized part, make sure of the direction.
+
 ---
 
 ## 8. Configuration files
@@ -616,6 +693,26 @@ The controller sometimes ignores a move that comes immediately after a stop. The
 
 The vacuum stays on from the pick until the place. By default, the application does not use the vacuum sensor to check a pick (**Check vacuum sensor** on the Defaults tab is off). If you turn the check on and the sensor does not see the part, the application releases the part.
 
+### 9.6 A pick is not possible: the nozzle "already holds a part"
+
+After a bad pick, the application can think that a nozzle holds a part. On the Job tab, click **Reset nozzles**. Then click **Resume** or press **Step**.
+
+### 9.7 Parts are placed at the wrong position
+
+1. Click **Go to** on a placed part in the **Parts** table.
+2. If the crosshair is not on the part position, the board position is not correct. Set the reference points again on round holes with **Centre on mark** (see [7.6](#76-run-a-job)).
+3. If the crosshair is on the part position but the part is not, the error comes from the pick. Turn on **Vision** for the part, or calibrate the nozzle offsets again (see [7.1](#71-calibrate-the-machine)).
+
+### 9.8 Parts are placed with the wrong rotation
+
+If the position is correct but the part is turned, set the **Rotation offset** of the feeder (see [7.13](#713-set-the-rotation-of-a-feeder)). Each feeder can need a different value.
+
+### 9.9 Centre on mark goes to the wrong feature
+
+1. Turn on **Detect** on the down camera view. The green circle shows the mark that the application sees.
+2. Select a **Mark Ø** that agrees with the size of the mark. For example, 1–4 mm does not include small text.
+3. Put the crosshair on the mark or very near it, then try again.
+
 ---
 
 ## 10. Command-line tools
@@ -625,7 +722,8 @@ The vacuum stays on from the pick until the place. By default, the application d
 | `.venv-linux/bin/tvm-pnp` | Starts the server. This is the same as `python -m pnp.api`. |
 | `.venv-linux/bin/tvm-sim --port 7001` | Starts only the simulated controller. |
 | `.venv-linux/bin/tvm-monitor` | Shows the live state of the machine. It does not send commands that move the machine. |
-| `.venv-linux/bin/tvm-monitor --raw --unknown` | Also shows the raw state data and the unknown replies. Use this to find unknown signals, for example the front panel keys. |
+| `.venv-linux/bin/tvm-monitor --raw --unknown` | Also shows the raw state data and the unknown replies. |
+| `.venv-linux/bin/python -m pnp.tvm.keyprobe` | Shows each bit that changes in the replies of the controller. It only reads. Use it to find unknown signals: press one key or switch at a time. Stop the web application first. |
 | `.venv-linux/bin/tvm-monitor --host 127.0.0.1 --port 7001` | Shows the state of the simulated controller. |
 
 When the server runs, `http://127.0.0.1:8080/api/debug/raw` shows the raw state bytes of the controller.
@@ -640,7 +738,7 @@ To run all tests, use this command:
 .venv-linux/bin/python -m pytest -q
 ```
 
-The tests use the simulator. They do not need a machine or cameras. There are 455 tests. A full run takes approximately 8 minutes.
+The tests use the simulator and some images from the real cameras. They do not need a machine or cameras. There are 516 tests. A full run takes approximately 9 minutes.
 
 > **NOTE:** On Windows, the test `test_camera.py::test_device_holders_finds_other_process` fails. This test is for Linux only.
 
@@ -652,11 +750,11 @@ The tests use the simulator. They do not need a machine or cameras. There are 45
 |---|---|---|
 | 0 | Protocol and simulator | Complete |
 | 1 | Machine control and manual control interface | Complete. Tested on the machine. |
-| 2 | Cameras and calibration | Complete. The down camera scale and the nozzle 2 offset are calibrated on the machine. |
+| 2 | Cameras and calibration | Complete. Calibrated on the machine: down camera, up camera, both nozzle offsets, needle offset, up camera positions. |
 | 3 | Feeders and manual pick and place | Complete. Pick, feed and place tested on the machine. |
-| 4 | KiCad jobs, feeder banks, panels, placement without vision | Complete in the simulator. Job import tested on the machine. |
+| 4 | KiCad jobs, feeder banks, panels, placement without vision | Complete. Jobs placed on the machine (step mode and full run). |
 | 5 | Fiducials | Complete in the simulator. Not tested on the machine. |
-| 6 | Bottom vision | Complete in the simulator. Not tested on the machine. |
+| 6 | Bottom vision | Complete. Used for some parts on the machine. |
 | 7 | Improvements | Planned |
 
 ### 12.1 Planned features
@@ -666,20 +764,16 @@ The tests use the simulator. They do not need a machine or cameras. There are 45
   - Compensation for nozzle runout.
   - Camera check of the sprocket holes on the feeders.
   - Statistics for each job.
-- **Front panel keys:** use the jog keys and the start and stop keys on the machine front panel. The signals of these keys are not known yet. Use `tvm-monitor --raw --unknown` on the machine to find them.
 - **Needle back-off:** move the head a small distance back after a drag, to release the needle from the tape. Not started.
 
 ### 12.2 Work to do on the machine
 
 Do these tasks before the first job on the machine:
 
-1. Calibrate the nozzle 1 offset, the prick needle offset, the up camera scale and the up camera positions (see [7.1](#71-calibrate-the-machine)).
-2. Set the discard bin position (Defaults tab, **Discard bin X, Y**).
-3. Measure the pick depth and the place depth. The current value of each depth is 3.0 mm, which is only an estimate. Set the values on the Defaults tab.
-4. Measure the X and Y speed. The move time limits use an estimated speed of 25 mm/s.
-5. Teach the origin of each stack. Make sure that the needle point of one lane is correct.
-6. Before you use bottom vision: make sure that a positive A turns the part counterclockwise (seen from above), and that parts show brighter than the nozzle on the up camera.
-7. Place a first board. Make sure that the part rotation from KiCad agrees with the tape orientation.
+1. Set the discard bin position (Defaults tab, **Discard bin X, Y**). Without it, a part that vision does not accept cannot be discarded.
+2. Measure the X and Y speed. The move time limits use an estimated speed of 25 mm/s.
+3. For each new feeder, place one part and set the **Rotation offset** if necessary.
+4. The two-point check measured 0.34 % less distance than the board. If parts far from the reference points are not correct, measure the steps per mm of X and Y.
 
 ---
 
@@ -692,12 +786,26 @@ Do these tasks before the first job on the machine:
 - **Vacuum sensor:** on this machine, the vacuum sensor does not show a held part. The pick check with the sensor is off by default.
 - **Cameras:** the USB cameras can stop when they open. Then you must disconnect the camera and connect it again (see [9.2](#92-a-camera-view-stays-empty)).
 - **Browser dialogs:** the web interface uses its own confirmation windows. It does not use the browser `alert`, `confirm` or `prompt` dialogs, because some browser panes block them.
+- **ConMove and the network:** if the connection stops while you hold an arrow key in Con mode, the head continues to the soft limit, because the stop command cannot get to the controller.
 
 ---
 
 ## 14. Recent changes
 
-Changes from the work on the machine (November 2026):
+Changes from the work on the machine, 16 November 2026:
+
+- **Front panel keys:** the jog keys, DotMove/ConMove, Step, Start/Stop and Pause/Cont on the machine work (see [7.11](#711-use-the-front-panel-keys)). The status poll is now every 50 ms, so a short press is not missed.
+- **Step mode:** the job runs one stage per press of **Step** (see [7.12](#712-run-a-job-one-stage-at-a-time)).
+- **Parts table:** switch parts on or off, remove parts, and change the X, Y and rotation of a part. **Place at** shows the machine position and the nozzle angle.
+- **Reset nozzles:** clears what the nozzles hold after a bad pick.
+- **Rotation offset:** for each feeder and for all lanes of a stack (see [7.13](#713-set-the-rotation-of-a-feeder)).
+- **Rotation:** the rotation motors of nozzle 1 and nozzle 2 were the wrong way around; this is corrected. The clockwise and anticlockwise buttons on the Machine tab were also the wrong way around; this is corrected. Positive angles are anticlockwise, as in KiCad.
+- **Pump:** the pump goes off when a job stops or is complete.
+- **Board reference points:** **Centre on mark** for each point, with a mark size. It finds holes and cut-outs by their edge, and it does not go to nearby text. The application does not accept points that are not in the coordinates of the file.
+- **Detect:** each camera view can show what the camera detects.
+- **Confirmation windows:** delete feeder, delete bank, load layout, delete job and reset statuses did not work (two elements had the same name). This is corrected.
+
+Changes from the work on the machine, 13 November 2026:
 
 - **Defaults tab:** a new tab to change all default values of the machine (pick and place depths, timing, vision, soft limits, motion). Advanced values are in a closed section with a warning. The values are saved in `machine.yaml` with the comments kept, and are used immediately.
 - **Default pick depth:** a new value (`head.pick_depth`, 3 mm) for new feeders and bank lanes.

@@ -95,6 +95,7 @@ class SimMachine:
         }
         self.outputs = 0
         self.needle_down = False  # physical needle position (what the sensor reports)
+        self.keys: set[str] = set()  # front-panel keys held down (tests / UI simulate presses)
         self.clock = 0.0  # simulated seconds
         self._stop_t: dict = {}  # axis -> clock when it last stopped
         self.ignored_moves = 0
@@ -202,6 +203,7 @@ class SimMachine:
             pressure1=vac_ok(1, p.Output.VACUUM1),
             pressure2=vac_ok(2, p.Output.VACUUM2),
             needle_up=not self.needle_down,
+            keys=self.keys,
         )
 
     def handle(self, frame: bytes) -> bytes | None:

@@ -147,8 +147,9 @@ def test_head_config_unknown_key_rejected(tmp_path):
 
 
 def test_repo_machine_config_still_loads():
+    # The head values may be changed on the Defaults tab; the file must still load.
     cfg = load_config(REPO / "config" / "machine.yaml")
-    assert cfg.head == HeadConfig()
+    assert isinstance(cfg.head, HeadConfig)
 
 
 def test_prick_offset_round_trip(tmp_path):

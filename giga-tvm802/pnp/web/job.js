@@ -3,12 +3,12 @@
 // Job tab: import, board and panel setup, the parts list and the run controls.
 // Polls GET /api/job every 500 ms while the tab is on screen. Loaded after app.js.
 
-const RUN_BUSY = ["running", "pausing", "stopping"];
+const RUN_BUSY = ["running", "pausing", "stopping", "stepping"];
 const RUN_LABEL = {
   idle: "Idle", running: "Running", pausing: "Pausing", paused: "Paused",
-  stopping: "Stopping", done: "Done", error: "Error",
+  stopping: "Stopping", done: "Done", error: "Error", stepping: "Step mode",
 };
-const RUN_BADGE = { running: "accent", paused: "warning", error: "danger", done: "success" };
+const RUN_BADGE = { running: "accent", stepping: "accent", paused: "warning", error: "danger", done: "success" };
 
 let jobData = null;        // last GET /api/job
 let jobFeederIds = [];     // feeder ids for the Feeder selects
@@ -23,6 +23,30 @@ let refsSig = "";
 // Two-point alignment: point 1 (origin) and point 2, each a board X/Y and a machine
 // X/Y (captured from the camera, editable).
 let refsLoadedFor = null;  // job name whose saved reference points were put in the fields
+
+// Where the parts are in the position file's coordinates (the frame the reference points use).
+function partsExtent(job) {
+  const top = job ? job.parts.filter((p) => p.side !== "bottom") : [];
+  if (!top.length) return null;
+  const xs = top.map((p) => p.x), ys = top.map((p) => p.y);
+  return { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
+}
+
+function originNearParts(job) {
+  const e = partsExtent(job);
+  if (!e) return true;
+  return Math.hypot(Math.max(e.x0, 0, -e.x1), Math.max(e.y0, 0, -e.y1)) <= 40;
+}
+
+function renderExtent(job) {
+  const el = $("#ref-extent");
+  const e = partsExtent(job);
+  el.hidden = !e;
+  if (e) {
+    el.textContent = `Parts in this file: X ${e.x0.toFixed(1)} to ${e.x1.toFixed(1)}, Y ${e.y0.toFixed(1)} to ${e.y1.toFixed(1)} mm. `
+      + "Both points must be in these coordinates (on or near the board).";
+  }
+}
 
 function refRow(k) {
   return document.querySelector(`.ref-row[data-refpt="${k}"]`);
@@ -148,6 +172,19 @@ function renderRun(job) {
   } else {
     lastEl.replaceChildren();
   }
+  const held = s.holding || {};
+  $("#job-holding").textContent = [1, 2].map((n) => `N${n} ${held[n] ? `holds a part from ${held[n]}` : "empty"}`).join(" · ");
+  $("#job-holding").classList.toggle("holds", !!(held[1] || held[2]));
+
+  // Step mode: what is running now and what the next press of Step does.
+  const info = $("#job-step-info");
+  const st = s.step;
+  info.hidden = !st;
+  if (st) {
+    const part = st.ref ? `${st.ref} · stage ${st.index} of ${st.count}` : "";
+    info.textContent = (st.running ? `Running: ${st.running}. ` : "")
+      + `Next press: ${st.next}` + (part ? ` (${part})` : "");
+  }
   const box = $("#job-message");
   box.hidden = !s.message;
   box.classList.toggle("warn", s.state === "paused");
@@ -190,14 +227,16 @@ function renderRefPoints(job) {
     bsel.replaceChildren(...Array.from({ length: n }, (_, k) => optionEl(String(k), `Board ${k + 1}`)));
     if (prevB !== "" && Number(prevB) < n) bsel.value = prevB;
   }
+  renderExtent(job);
   // Put the job's saved reference points in the fields once per job.
   if (job && refsLoadedFor !== job.name) {
     refsLoadedFor = job.name;
     const saved = (job.references || []).slice(0, 2);
     for (const [k, r] of [["a", saved[0]], ["b", saved[1]]]) {
       const row = refRow(k);
-      // Point 1 defaults to the board origin (0, 0); point 2 starts empty.
-      const def = k === "a" ? { ref: null, x: 0, y: 0 } : { ref: null, x: "", y: "" };
+      // Point 1 defaults to 0, 0 only when that is on the board in the file's coordinates
+      // (exported with the drill/place origin); otherwise both start empty.
+      const def = k === "a" && originNearParts(job) ? { ref: null, x: 0, y: 0 } : { ref: null, x: "", y: "" };
       const p = r || def;
       row.querySelector(".ref-part").value = p.ref && refs.includes(p.ref) ? p.ref : "";
       row.querySelector(".ref-x").value = p.x;
@@ -218,6 +257,15 @@ function refPartChanged(row) {
     row.querySelector(".ref-x").value = part.x;
     row.querySelector(".ref-y").value = part.y;
   }
+}
+
+// Centre the down camera on the round mark nearest the crosshair, then capture the point.
+async function centreRef(row) {
+  const [lo, hi] = $("#ref-mark-size").value.split(",").map(Number);
+  const n = row.dataset.refpt === "a" ? "1" : "2";
+  const res = await jobCall(`Point ${n}: centre on mark`, "/api/calibrate/down/centre",
+                            { polarity: "auto", mark_mm: [lo, hi], method: "auto" });  // holes too
+  if (res && res.position) recordRef(row);
 }
 
 function recordRef(row) {
@@ -295,8 +343,18 @@ function renderBoardRows(job) {
 function matchesFilter(item) {
   if (jobFilter === "todo") return item.status === "pending";
   if (jobFilter === "problem") return !!item.problem || item.status === "failed";
+  if (jobFilter === "off") return partOff(currentPart(item.ref));
   return true;
 }
+
+// Angle as -180..180 (what the nozzle turns to; it takes the shortest way).
+function fmtAngle(a) {
+  const w = ((a + 180) % 360 + 360) % 360 - 180;
+  return (Math.round(w * 10) / 10).toString();
+}
+
+// A part switched off (JobPart.skip) is kept in the job but not placed.
+const partOff = (part) => !!part && !!part.skip;
 
 function statusChip(status) {
   if (status === "placed") return elem("span", "chip ok", "Placed");
@@ -316,12 +374,14 @@ function renderParts(job, plan) {
   const rows = plan.filter(matchesFilter);
   const locked = jobBusy || runnerBusy();
   const ready = jobReady();
-  const overrides = job ? job.parts.map((p) => [p.ref, p.skip, p.nozzle ?? null, p.feeder ?? null, p.vision ?? null]) : [];
+  const overrides = job ? job.parts.map((p) => [p.ref, p.skip, p.nozzle ?? null, p.feeder ?? null, p.vision ?? null,
+                                                   p.x, p.y, p.rotation]) : [];
   const sig = JSON.stringify([rows, jobFeederIds, overrides, locked, ready]);
   const tbody = $("#job-rows");
   if (sig === partsSig) return;
-  // Keep an open or focused select: a rebuild would close it. The next poll retries.
-  if (tbody.contains(document.activeElement) && document.activeElement.tagName === "SELECT") return;
+  // Keep an open select or a field being typed in: a rebuild would close or reset it. The next poll retries.
+  if (tbody.contains(document.activeElement) && ["SELECT", "INPUT"].includes(document.activeElement.tagName)
+      && document.activeElement.type !== "checkbox") return;
   partsSig = sig;
   const parts = new Map(job ? job.parts.map((p) => [p.ref, p]) : []);
   tbody.replaceChildren(...rows.map((item) => partRow(item, parts.get(item.ref), locked, ready)));
@@ -368,11 +428,24 @@ function partRow(item, part, locked, ready) {
   go.disabled = locked || !ready || item.x == null;
   go.addEventListener("click", () => gotoPlacement(item.ref, item.key));
 
-  const skipped = !!part && !!part.skip;
-  const skip = buttonEl(skipped ? "Unskip" : "Skip", "btn btn-ghost btn-small");
-  skip.disabled = locked;
-  skip.addEventListener("click", () => savePart(item.ref, { skip: !skipped }));
-  actions.append(go, skip);
+  const off = partOff(part);
+  const bottom = !!part && part.side === "bottom";
+  const on = document.createElement("input");
+  on.type = "checkbox";
+  on.className = "part-on";
+  on.checked = !off && !bottom;
+  on.disabled = locked || bottom;
+  on.title = bottom ? "Bottom-side part: never placed" : (off ? "Off: not placed. Click to switch on." : "On: placed in runs. Click to switch off.");
+  on.setAttribute("aria-label", `Place ${item.ref}`);
+  on.addEventListener("change", () => savePart(item.ref, { skip: !on.checked }));
+  tr.classList.toggle("part-off", off || bottom);
+
+  const remove = buttonEl("", "btn btn-ghost btn-icon", "i-trash-2");
+  remove.title = "Remove from the job";
+  remove.setAttribute("aria-label", `Remove ${item.ref} from the job`);
+  remove.disabled = locked;
+  remove.addEventListener("click", () => removePart(item.ref));
+  actions.append(go, remove);
 
   if (item.status === "failed" || item.status === "placed") {
     const todo = buttonEl("Mark to do", "btn btn-ghost btn-small");
@@ -382,11 +455,36 @@ function partRow(item, part, locked, ready) {
     actions.append(todo);
   }
 
+  // Placement in the file (board mm / deg): editable, applies to the part on every board.
+  const coord = (name, label, value, digits) => {
+    const inp = document.createElement("input");
+    inp.type = "number";
+    inp.step = "any";
+    inp.className = "num part-coord";
+    inp.value = part ? Number(value).toFixed(digits).replace(/\.?0+$/, "") : "";
+    inp.disabled = locked || !part;
+    inp.setAttribute("aria-label", `${label} of ${item.ref}`);
+    inp.addEventListener("change", () => {
+      const v = parseFloat(inp.value);
+      if (!Number.isFinite(v)) { showError(`${label} of ${item.ref} must be a number`); return; }
+      savePart(item.ref, { [name]: v });
+    });
+    return tdWith(inp);
+  };
+  const placeAt = item.x == null
+    ? "–"
+    : `${item.x.toFixed(2)}, ${item.y.toFixed(2)}` + (item.nozzle_angle == null ? "" : ` · ${fmtAngle(item.nozzle_angle)}°`);
+
   tr.append(
+    tdWith(on),
     cell(item.board + 1, "mono"),
     cell(item.ref, "mono"),
     cell(item.value),
     cell(item.package),
+    coord("x", "X", part ? part.x : 0, 3),
+    coord("y", "Y", part ? part.y : 0, 3),
+    coord("rotation", "Rotation", part ? part.rotation : 0, 2),
+    cell(placeAt, "mono place-at"),
     tdWith(noz),
     tdWith(feed),
     tdWith(vis),
@@ -620,11 +718,16 @@ function updateJobButtons(job) {
   $("#job-start").disabled = busy || !job || !(s === "idle" || s === "done");
   $("#job-pause").disabled = busy || s !== "running";
   $("#job-resume").disabled = busy || !(s === "paused" || s === "error");
-  $("#job-stop").disabled = busy || !(s === "running" || s === "paused" || s === "error");
+  $("#job-stop").disabled = busy || !(s === "running" || s === "stepping" || s === "paused" || s === "error");
+  $("#job-step").disabled = busy || !job || ["running", "pausing", "stopping"].includes(s)
+    || (s === "stepping" && !!(runStatus().step && runStatus().step.running));
   $("#job-reset").disabled = busy || runner || !job;
+  $("#job-reset-nozzles").disabled = busy || runner;
   $("#job-file").disabled = busy || runner;
   $("#job-import-btn").disabled = busy || runner || !$("#job-file").files.length;
   $("#job-delete").disabled = busy || runner || !job;
+  $("#parts-enable-shown").disabled = busy || runner || !job;
+  $("#parts-disable-shown").disabled = busy || runner || !job;
 
   // Board, panel and grid edits need a job and no run in progress.
   const noJob = busy || runner || !job;
@@ -632,9 +735,45 @@ function updateJobButtons(job) {
     el.disabled = noJob;
   }
   for (const el of $$(".ref-row select, #ref-board")) el.disabled = noJob;
-  for (const el of $$(".ref-record")) el.disabled = noJob || !jobReady();
+  for (const el of $$(".ref-record, .ref-centre")) el.disabled = noJob || !jobReady();
   $("#ref-apply").disabled = noJob || !jobReady() || !refMachine("a") || !refMachine("b");
   updateFiducialControls(job);
+}
+
+async function resetNozzles() {
+  const held = runStatus().holding || {};
+  const parts = [1, 2].filter((n) => held[n]).map((n) => `N${n} (${held[n]})`);
+  const ok = await confirmDialog({
+    title: "Reset the nozzles?",
+    body: "The vacuum switches off on both nozzles and they go up; the head doesn't move. "
+      + (parts.length ? `A part still on ${parts.join(" and ")} drops where the head is now. ` : "")
+      + "Then the next pick can start again.",
+    confirmLabel: "Reset nozzles",
+  });
+  if (!ok) return;
+  await jobCall("Reset nozzles", "/api/head/reset", {});
+}
+
+async function removePart(ref) {
+  const boards = jobData && jobData.job ? jobData.job.boards.length : 1;
+  const ok = await confirmDialog({
+    title: `Remove ${ref} from the job?`,
+    body: `${ref} is removed${boards > 1 ? ` on all ${boards} boards` : ""}, with its placement status. `
+      + "To leave it out only for now, switch it off instead. Import the position file again to get it back.",
+    confirmLabel: "Remove part",
+  });
+  if (!ok) return;
+  await jobCall(`Remove ${ref}`, `/api/job/parts/${enc(ref)}`, undefined, "DELETE");
+}
+
+// Enable or disable every part in the list as filtered now.
+async function setShownParts(enabled) {
+  const job = jobData && jobData.job;
+  if (!job) return;
+  const refs = [...new Set(((jobData.plan) || []).filter(matchesFilter).map((i) => i.ref))]
+    .filter((ref) => { const p = currentPart(ref); return p && p.side !== "bottom" && partOff(p) === enabled; });
+  if (!refs.length) return;
+  await jobCall(`${enabled ? "Enable" : "Disable"} ${refs.length} part(s)`, "/api/job/parts/enable", { refs, enabled });
 }
 
 async function savePart(ref, changes) {
@@ -749,6 +888,7 @@ function initJob() {
   $("#job-pause").addEventListener("click", () => jobCall("Pause job", "/api/job/pause"));
   $("#job-resume").addEventListener("click", () => jobCall("Resume job", "/api/job/resume"));
   $("#job-stop").addEventListener("click", () => jobCall("Stop job", "/api/job/stop"));
+  $("#job-step").addEventListener("click", () => jobCall("Job step", "/api/job/step"));
   $("#job-reset").addEventListener("click", resetStatuses);
 
   for (const id of ["#job-ox", "#job-oy", "#job-rot"]) {
@@ -760,6 +900,7 @@ function initJob() {
   for (const row of $$(".ref-row")) {
     row.querySelector(".ref-part").addEventListener("change", () => refPartChanged(row));
     row.querySelector(".ref-record").addEventListener("click", () => recordRef(row));
+    row.querySelector(".ref-centre").addEventListener("click", () => centreRef(row));
     for (const f of row.querySelectorAll(".ref-mx, .ref-my")) {
       f.addEventListener("input", () => updateJobButtons(jobData && jobData.job));
     }
@@ -779,6 +920,9 @@ function initJob() {
       renderParts(jobData && jobData.job, (jobData && jobData.plan) || []);
     });
   }
+  $("#job-reset-nozzles").addEventListener("click", resetNozzles);
+  $("#parts-enable-shown").addEventListener("click", () => setShownParts(true));
+  $("#parts-disable-shown").addEventListener("click", () => setShownParts(false));
   updateJobButtons(null);
 }
 

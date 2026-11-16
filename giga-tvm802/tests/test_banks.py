@@ -274,3 +274,21 @@ def test_banks_file_format(tmp_path):
     assert entry["id"] == "back" and entry["active_layout"] == "Passives"
     assert len(entry["layouts"]["Passives"]) == 4
     assert entry["layouts"]["Passives"][0]["bank"] == "back"
+
+
+# ------------------------------------------------------------------ rotation offset
+
+def test_generate_with_rotation_offset_sets_every_lane():
+    feeders = generate_lanes("left", back_spec(rotation_offset=-90.0), [])
+    assert [f.rotation for f in feeders] == [90.0] * 4  # stored as the part's rotation in the tape
+    kept = generate_lanes("left", back_spec(), [Feeder(id="left-1", kind="drag", pick=(0, 0), lane=1, rotation=90.0)])
+    assert kept[0].rotation == 90.0  # no offset given: each lane keeps its own
+
+
+def test_set_rotation_offset_on_existing_lanes(tmp_path):
+    banks, feeders = stores(tmp_path)
+    loaded_back(banks, feeders)
+    banks.set_rotation_offset("back", -90.0)
+    assert {f.rotation for f in FeederStore(tmp_path / "feeders.yaml").by_bank("back")} == {90.0}
+    with pytest.raises(BankError):
+        banks.set_rotation_offset("nope", 0.0)

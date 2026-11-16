@@ -139,7 +139,7 @@ def move_for_offset(A: np.ndarray, offset_px) -> tuple[float, float]:
 
 
 def find_blob(img, polarity: str = "auto", min_area: int = 20, max_area: int | None = None, *,
-              block: int | None = None, min_circularity: float = 0.0):
+              block: int | None = None, min_circularity: float = 0.0, with_radius: bool = False):
     """Centroid (u, v) of the blob nearest the image centre, or None.
 
     Without `block`: Gaussian blur and one global Otsu threshold. polarity
@@ -200,10 +200,14 @@ def find_blob(img, polarity: str = "auto", min_area: int = 20, max_area: int | N
                     continue
             u = m["m10"] / m["m00"] + 0.5
             v = m["m01"] / m["m00"] + 0.5
-            d2 = (u - cx0) ** 2 + (v - cy0) ** 2
+            # Nearest by distance to the blob's EDGE (centre distance minus its radius), so a
+            # mark the crosshair sits in wins, and a big hole isn't beaten by a small letter
+            # whose centre happens to be closer (real machine 2026-11-16: a 3.4 mm cut-out
+            # next to "USB" silkscreen).
+            d2 = np.hypot(u - cx0, v - cy0) - np.sqrt(area / np.pi)
             if d2 < best_d2:
                 best_d2 = d2
-                best = (float(u), float(v))
+                best = (float(u), float(v), float(np.sqrt(area / np.pi))) if with_radius else (float(u), float(v))
     return best
 
 
@@ -256,11 +260,89 @@ async def calibrate_scale(machine, camera, *, step_mm: float = 1.0, settle: floa
     }
 
 
+def find_circle(img, min_r: float, max_r: float, *, votes: tuple[int, ...] = (30, 25), with_radius: bool = False):
+    """Centre (u, v) of the circular EDGE nearest the image centre, or None.
+
+    For holes and cut-outs in a PCB: dark inside on dark solder mask, so only their
+    thin edge shows and a threshold can't separate them (real machine 2026-11-16,
+    3.25 mm corner holes next to "USB" silkscreen). Contrast is boosted (CLAHE), then a
+    Hough transform looks for circles with a radius between min_r and max_r px; the
+    strictest vote threshold that finds one wins. Nearest = by distance to the circle's
+    edge, so a circle around the crosshair beats a small one nearby. Circles cut by the
+    image border don't count. Continuous coordinates (index + 0.5).
+    """
+    gray = to_gray(img)
+    h, w = gray.shape[:2]
+    g = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8)).apply(gray)
+    g = cv2.GaussianBlur(g, (0, 0), 2)
+    cx0, cy0 = w / 2.0, h / 2.0
+    for p2 in votes:
+        found = cv2.HoughCircles(g, cv2.HOUGH_GRADIENT, dp=1, minDist=max(20.0, float(min_r)),
+                                 param1=60, param2=p2, minRadius=max(4, int(min_r)),
+                                 maxRadius=max(5, int(np.ceil(max_r))))
+        if found is None:
+            continue
+        inside = [c for c in found[0] if c[0] - c[2] > 1 and c[1] - c[2] > 1
+                  and c[0] + c[2] < w - 1 and c[1] + c[2] < h - 1]
+        if inside:
+            u, v, r = min(inside, key=lambda c: np.hypot(c[0] + 0.5 - cx0, c[1] + 0.5 - cy0) - c[2])
+            u, v = _refine_circle(g, float(u), float(v), float(r))
+            return (u + 0.5, v + 0.5, float(r)) if with_radius else (u + 0.5, v + 0.5)
+    return None
+
+
+def _refine_circle(g, u: float, v: float, r: float) -> tuple[float, float]:
+    """Least-squares circle through the edge pixels near the Hough circle (u, v, r).
+    The Hough centre is only good to a few px; the fit repeats to ~0.5 px on real frames.
+    Keeps the Hough centre when there are too few edge pixels or the fit runs off."""
+    ys, xs = np.nonzero(cv2.Canny(g, 30, 90))
+    u0, v0, r0 = u, v, r
+    for band in (8.0, 4.0, 3.0):
+        sel = np.abs(np.hypot(xs - u, ys - v) - r) <= band
+        if sel.sum() < 20:
+            break
+        x, y = xs[sel].astype(float), ys[sel].astype(float)
+        (u, v, c), *_ = np.linalg.lstsq(np.c_[2 * x, 2 * y, np.ones_like(x)], x * x + y * y, rcond=None)
+        r = float(np.sqrt(max(c + u * u + v * v, 0.0)))
+    if not np.isfinite(u) or np.hypot(u - u0, v - v0) > 0.25 * r0 or abs(r - r0) > 0.25 * r0:
+        return u0, v0
+    return float(u), float(v)
+
+
+def find_mark(img, k: float, mark_mm: tuple[float, float] = (0.3, 4.0), *, polarity: str = "auto",
+              method: str = "blob", with_radius: bool = False):
+    """The round mark nearest the image centre, (u, v) or None. k = px per mm.
+
+    method "blob": a solid round blob (threshold; calibration dots, fiducials).
+    "circle": a circular edge (holes, cut-outs; find_circle). "auto": circle first, then blob.
+    """
+    if method not in ("blob", "circle", "auto"):
+        raise ValueError(f"unknown mark method {method!r}")
+    if method in ("circle", "auto"):
+        found = find_circle(img, mark_mm[0] * k / 2, mark_mm[1] * k / 2, with_radius=with_radius)
+        if found is not None or method == "circle":
+            return found
+    min_area = np.pi * (mark_mm[0] * k / 2) ** 2
+    max_area = np.pi * (mark_mm[1] * k / 2) ** 2
+    # Local-threshold window: 2.5 mm, tuned against the head's glow; it also finds holes and
+    # cut-outs with a clear edge ring. For marks over 4 mm a wider window is tried as well
+    # when the first finds nothing (a large solid disc).
+    blocks = [max(31, int(2.5 * k) | 1)]
+    if mark_mm[1] > 4.0:
+        blocks.append(max(31, int(1.5 * mark_mm[1] * k) | 1))
+    for block in blocks:
+        found = find_blob(img, polarity=polarity, min_area=min_area, max_area=max_area,
+                          block=block, min_circularity=0.6, with_radius=with_radius)
+        if found is not None:
+            return found
+    return None
+
+
 async def centre_on_blob(machine, camera, A, *, polarity: str = "auto", iterations: int = 4,
                          tol_px: float = 1.0, settle: float = 0.2,
                          resolution_mm: float = 0.0,
                          mark_mm: tuple[float, float] = (0.3, 4.0),
-                         max_move_mm: float = 2.0) -> tuple[float, float]:
+                         max_move_mm: float = 2.0, method: str = "blob") -> tuple[float, float]:
     """Jog the head until the nearest round mark sits within tol_px of the image centre.
 
     Only round blobs between mark_mm[0] and mark_mm[1] across count, found with a
@@ -283,14 +365,13 @@ async def centre_on_blob(machine, camera, A, *, polarity: str = "auto", iteratio
     """
     A = np.asarray(A, dtype=float)
     k = float(np.mean(np.linalg.svd(A, compute_uv=False)))  # px per mm
-    min_area = np.pi * (mark_mm[0] * k / 2) ** 2
-    max_area = np.pi * (mark_mm[1] * k / 2) ** 2
-    block = max(31, int(2.5 * k) | 1)
+
+    def find(image):
+        return find_mark(image, k, mark_mm, polarity=polarity, method=method)
     prev = None
     for i in range(iterations + 1):
         frame = await camera.fresh_frame(after=time.monotonic() + settle)
-        blob = find_blob(frame.image, polarity=polarity, min_area=min_area, max_area=max_area,
-                         block=block, min_circularity=0.6)
+        blob = find(frame.image)
         if blob is None:
             raise CalibrationError(
                 f"no round mark {mark_mm[0]:g}-{mark_mm[1]:g} mm across found near the crosshair")

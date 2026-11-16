@@ -739,3 +739,43 @@ def test_job_references_round_trip_and_old_files_load(tmp_path):
     (tmp_path / "job.yaml").write_text(yaml.safe_dump(data))
     old = store.load()
     assert old.references == [] and old.reference_board == 0
+
+
+def _page_coords_job():
+    """A board as KiCad exports it without the drill/place origin: page coordinates, Y negated
+    (like grelay4-low_power: outline X 92..150, Y -41.75..-120.75)."""
+    from pnp.job.job import Job, JobPart
+    parts = [JobPart("C3", "10u", "C_0805", 132.48, -47.77, 270.0), JobPart("C21", "100n", "C_0805", 117.0, -99.6, 270.0),
+             JobPart("C16", "8p", "C_0805", 108.94, -109.0, 180.0), JobPart("R7", "10k", "R_0805", 137.0, -86.41, 90.0)]
+    return Job(name="page", parts=parts, origin=(10.0, 10.0))
+
+
+def test_reference_point_far_from_the_parts_is_refused_with_the_reason():
+    from pnp.job.job import check_reference_point
+    job = _page_coords_job()
+    with pytest.raises(ValueError, match="page origin"):
+        check_reference_point(job, "Point 1", 0.0, 0.0)
+    with pytest.raises(ValueError, match=r"try Y -90\.0938"):
+        check_reference_point(job, "Point 2", 67.056, 90.0938)
+    # board corners and parts in the file's coordinates are fine
+    for x, y in [(92.0, -41.747), (150.0, -120.75), (117.0, -99.6)]:
+        check_reference_point(job, "P", x, y)
+
+
+def test_distance_mismatch_is_refused():
+    from pnp.job.job import check_distances, fit_two_points
+    ok = fit_two_points((0.0, 0.0), (100.0, 100.0), (60.0, 0.0), (160.3, 100.0))
+    check_distances(ok)  # 0.3 mm on 60 mm: fine
+    bad = fit_two_points((0.0, 0.0), (100.0, 100.0), (60.0, 0.0), (165.0, 100.0))
+    with pytest.raises(ValueError, match="wrong feature"):
+        check_distances(bad)
+
+
+def test_placements_outside_the_machine_are_listed():
+    from pnp.job.job import placements_outside
+    job = _page_coords_job()
+    job.origin, job.rotation = (-40.326, -39.655), -0.138  # the bad fit seen on the machine
+    out = placements_outside(job, (-120.0, 299.0), (-75.0, 350.5))
+    assert {r for r, _, _ in out} == {"C3", "C21", "C16", "R7"}
+    job.origin = (-80.0, 160.0)  # a fit that puts the board on the bed
+    assert placements_outside(job, (-120.0, 299.0), (-75.0, 350.5)) == []

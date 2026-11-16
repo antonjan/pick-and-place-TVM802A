@@ -3,45 +3,45 @@ feeders:
   name: 100nF
   kind: drag
   pick:
-  - -115.734
-  - 99.305
+  - -115.185
+  - -43.252
   direction:
   - 1.0
   - 0.0
   pitch: 4.0
-  count: 0
+  count: 11
   capacity: null
-  rotation: 0.0
+  rotation: 90.0
   pick_depth: 8.0
   prick:
-  - -105.767
-  - 102.688
+  - -105.218
+  - -39.777
   needs_feed: true
   enabled: true
   value: 100nF
   package: ''
   bank: ''
   lane: null
-- id: L2
-  name: 10K
+- id: L26
+  name: ESP
   kind: drag
   pick:
-  - 0.0
-  - 0.0
+  - -117.167
+  - 296.818
   direction:
   - 1.0
   - 0.0
-  pitch: 4.0
-  count: 0
+  pitch: 16.0
+  count: 3
   capacity: null
   rotation: 0.0
-  pick_depth: 3.0
+  pick_depth: 7.5
   prick:
-  - 0.0
-  - 0.0
+  - -107.352
+  - 304.225
   needs_feed: true
   enabled: true
-  value: 10K
+  value: ESP32-S3FN8
   package: ''
   bank: ''
   lane: null

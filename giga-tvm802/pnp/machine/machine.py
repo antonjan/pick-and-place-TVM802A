@@ -111,6 +111,9 @@ class Machine:
         self._stopping = False
         self.estopped = False
         self.busy: str | None = None  # "moving" / "homing" / None
+        # Front-panel jog settings (pnp/machine/panel.py), shared with the UI's jog step:
+        # mode "dot" = one step per key press, "con" = move while the key is held.
+        self.panel: dict[str, Any] = {"mode": "dot", "step": 1.0}
         self.last_error: str | None = None
         self._lock = asyncio.Lock()
         self._fast_poll_users = 0
@@ -200,6 +203,7 @@ class Machine:
             "outputs": {name: bool(s.outputs & bit) == True and (s.outputs & bit) == bit
                         for name, bit in OUTPUTS.items()} if s else {},
             "speed_mode": s.speed_mode if s else None,
+            "panel": {**self.panel, "keys": sorted(s.keys) if s else []},
             "soft_limits": {"x": list(self.cfg.limits.x), "y": list(self.cfg.limits.y),
                             "z1_max": self.cfg.limits.z1_max, "z2_max": self.cfg.limits.z2_max},
             "time": time.time(),
@@ -458,6 +462,50 @@ class Machine:
             elif axis == "z":
                 target = min(max(target, -lim.z2_max), lim.z1_max)
             return await self._move_mm({axis: target}, safe=True)
+
+    async def jog_hold(self, axis: str, direction: int, released: asyncio.Event) -> dict[str, float]:
+        """Front-panel ConMove: move X or Y while a key is held, stop once `released` is set.
+
+        Homed, the move runs at most to the soft limit; not homed, at most
+        motion.max_unhomed_jog. Nozzles are raised first and the needle interlock applies,
+        as for any X/Y move. Ends with the axis at rest, so the next move isn't ignored.
+        """
+        if axis not in ("x", "y") or direction not in (-1, 1):
+            raise ValueError("jog_hold: axis must be x or y and direction -1 or 1")
+        ax = AXIS_BY_NAME[axis]
+        async with self._operation("jogging"):
+            m = self.cfg.motion
+            if not self.homed and not m.allow_unhomed_jog:
+                raise NotHomed("home the machine before jogging X/Y")
+            self._check_needle(True)
+            await self._raise_nozzles()
+            await self._wait_settled(ax)
+            start = await self.refresh()
+            here = self.from_steps(ax, start.positions[ax])
+            if self.homed:
+                lo, hi = getattr(self.cfg.limits, axis)
+                end = hi if direction > 0 else lo
+            else:
+                end = here + direction * m.max_unhomed_jog
+            if released.is_set() or (end - here) * direction <= 0:
+                return self.position()  # tapped and let go already, or at the limit
+            target = self._quantize({ax: self.to_steps(ax, end)}, start)
+            start_limits = start.inputs & LIMIT_BITS
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + self._estimate_timeout(target, start)
+            await self._send(p.DEFAULT_SPEED_SETUP, p.encode_move(target))
+            try:
+                with self._fast_poll():
+                    while not released.is_set():
+                        s = await self._next_state()
+                        if (s.inputs & LIMIT_BITS) & ~start_limits:
+                            raise LimitHit("limit switch hit during jog")
+                        if abs(s.positions[ax] - target[ax]) <= m.tolerance_steps or loop.time() > deadline:
+                            break
+            finally:
+                await self._send_stop(ax)
+            await self._wait_settled(ax)
+            return self.position()
 
     async def nozzle_down(self, nozzle: int, depth: float) -> dict[str, float]:
         """Lower nozzle 1 or 2 by `depth` mm (the other one goes up)."""

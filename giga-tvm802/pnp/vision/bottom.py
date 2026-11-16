@@ -140,6 +140,29 @@ def angle_error(measured: float, expected_axis: float) -> float:
     return float(d)
 
 
+def mm_to_px(points_mm, A, width: int, height: int) -> list[list[float]]:
+    """Points in mm relative to the image centre (the nozzle axis on the up camera) to
+    continuous pixel coordinates, through the camera's calibration matrix A (px per mm)."""
+    A = np.asarray(A, dtype=float)
+    centre = np.array([width / 2.0, height / 2.0])
+    return [[float(v) for v in centre + A @ np.asarray(p, dtype=float)] for p in points_mm]
+
+
+def part_outline_mm(view: PartView) -> list[tuple[float, float]]:
+    """The four corners (mm, relative to the nozzle axis) of the rectangle bottom vision measured."""
+    a = math.radians(view.angle)
+    ux, uy = math.cos(a), math.sin(a)          # along the long side
+    vx, vy = -uy, ux                           # along the short side
+    hl, hw = view.size[0] / 2, view.size[1] / 2
+    cx, cy = view.offset
+    return [(cx + sx * hl * ux + sy * hw * vx, cy + sx * hl * uy + sy * hw * vy)
+            for sx, sy in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+
+
+def circle_mm(radius: float, n: int = 48) -> list[tuple[float, float]]:
+    return [(radius * math.cos(2 * math.pi * i / n), radius * math.sin(2 * math.pi * i / n)) for i in range(n)]
+
+
 async def inspect_nozzle(machine, camera, A_up, nozzle: int, cfg: VisionConfig) -> tuple[PartView | None, float]:
     """Measure the part on nozzle n. The head must already be over the up camera.
 

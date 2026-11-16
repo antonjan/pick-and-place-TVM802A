@@ -34,6 +34,11 @@ class GenerateIn(BaseModel):
     pick_depth: float = 3.0
     lanes: list[LaneIn] = Field(default_factory=list)
     keep_parts: bool = True
+    rotation_offset: float | None = None  # deg for every lane; None = keep each lane's
+
+
+class RotationIn(BaseModel):
+    offset: float  # deg, + = anticlockwise, -90 = parts placed 90 deg more clockwise
 
 
 class LayoutIn(BaseModel):
@@ -144,8 +149,17 @@ def add_bank_routes(app: FastAPI, machine, banks_path: Path) -> None:
                 pick_depth=body.pick_depth,
                 lanes=[LaneSpec(width=lane.width, pitch=lane.pitch, offset=lane.offset) for lane in body.lanes],
                 keep_parts=body.keep_parts,
+                rotation_offset=body.rotation_offset,
             )
             banks.generate(id, spec)
+        return view(id)
+
+    @app.post("/api/banks/{id}/rotation")
+    async def set_rotation(id: str, body: RotationIn):
+        """Same rotation offset for every lane of the stack (the tape orientation of the stack)."""
+        idle()
+        with _mapped():
+            banks.set_rotation_offset(id, body.offset)
         return view(id)
 
     @app.post("/api/banks/{id}/layouts")

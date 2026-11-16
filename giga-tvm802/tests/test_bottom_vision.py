@@ -400,3 +400,19 @@ def test_api_rules_round_trip_body_and_vision(tmp_path):
         got = c.get("/api/package-rules").json()["rules"][0]
         assert got["body"] is None and got["vision"] is True
         c.put("/api/package-rules", json={"default_nozzle": before["default_nozzle"], "rules": before["rules"]})
+
+
+def test_part_outline_maps_back_onto_the_part_in_pixels():
+    """Detection overlay: the measured rectangle, drawn in camera pixels, sits on the part."""
+    import math
+    import numpy as np
+    from pnp.vision.bottom import PartView, mm_to_px, part_outline_mm
+    view = PartView(offset=(0.4, -0.2), angle=30.0, size=(2.0, 1.25), area=2.5)
+    corners = part_outline_mm(view)
+    assert np.allclose(np.mean(corners, axis=0), view.offset)
+    sides = [math.dist(corners[i], corners[(i + 1) % 4]) for i in range(4)]
+    assert sorted(round(s, 6) for s in sides) == [1.25, 1.25, 2.0, 2.0]
+    A = np.array([[-20.0, 0.5], [0.3, 20.0]])  # px per mm, mirrored in x like the up camera
+    px = mm_to_px(corners, A, 640, 480)
+    centre = np.mean(px, axis=0)
+    assert np.allclose(centre, np.array([320.0, 240.0]) + A @ np.array(view.offset))

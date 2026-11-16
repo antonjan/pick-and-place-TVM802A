@@ -386,3 +386,21 @@ def test_feed_waits_on_stuck_needle_and_continues_after_clear(tmp_path):
             assert store.get("D1").needs_feed is False
             assert m.alarm is None
     run(body())
+
+
+def test_reset_nozzles_clears_holding_so_the_next_pick_runs(tmp_path):
+    async def body():
+        async with rig(tmp_path) as (sim, m, head, store):
+            store.upsert(strip_feeder())
+            feeder = store.get("F1")
+            await head.pick(1, feeder)
+            assert head.holding[1] == "F1"
+            assert sim.machine.outputs & p.Output.VACUUM1
+            await head.reset_nozzles()
+            await m.refresh()
+            assert head.holding == {1: None, 2: None}
+            assert not sim.machine.outputs & p.Output.VACUUM1
+            assert abs(m.position()["z"]) < 0.05
+            await head.pick(1, feeder)  # no longer refused
+            assert feeder.count == 2
+    run(body())

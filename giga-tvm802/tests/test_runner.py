@@ -13,6 +13,7 @@ from pnp.job.head_ops import HeadOps
 from pnp.job.job import Job, JobPart, JobStore, grid, plan
 from pnp.job.rules import PackageRules
 from pnp.job.runner import JobError, JobRunner
+from pnp.tvm import protocol as p
 from pnp.machine.machine import Machine
 from pnp.sim.sim_vision import SIM_NOZZLE_OFFSETS, SIM_PRICK_OFFSET
 from pnp.sim.tvm_sim import SimConfig, TvmSimulator
@@ -180,6 +181,24 @@ def test_stop_leaves_remaining_parts_pending(tmp_path):
             assert status["placed"] + status["pending"] == 6
             assert not env.runner.busy()
             assert env.machine.homed
+            await until(lambda: not env.sim.machine.outputs & p.Output.PUMP_BOTH, 5)  # pump off on stop
+    run(body())
+
+
+def test_pump_goes_off_when_the_job_is_done_or_stopped_while_paused(tmp_path):
+    async def body():
+        async with rig(tmp_path) as env:
+            add_feeders(env.feeders)
+            env.jobs.save(job_of(STANDARD_PARTS[:1], boards=grid(1, 1, 50.0, 0.0)))
+            await env.runner.start()
+            await until(lambda: env.runner.state == "done")
+            await until(lambda: not env.sim.machine.outputs & p.Output.PUMP_BOTH, 5)
+            # paused -> Stop: idle at once, pump off
+            await env.machine.set_output("pump", True)
+            env.runner.state = "paused"
+            env.runner.stop()
+            assert env.runner.state == "idle"
+            await until(lambda: not env.sim.machine.outputs & p.Output.PUMP_BOTH, 5)
     run(body())
 
 

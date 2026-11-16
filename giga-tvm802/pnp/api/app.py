@@ -31,7 +31,7 @@ DEFAULT_PACKAGES = Path(__file__).resolve().parents[2] / "config" / "packages.ya
 DEFAULT_JOB = Path(__file__).resolve().parents[2] / "config" / "job.yaml"
 # Safety controls stay available during a job (the alarm buttons must work while a
 # job is waiting on a stuck needle).
-ALWAYS_ALLOWED = {"/api/estop", "/api/reset", "/api/alarm/clear", "/api/alarm/silence", "/api/alarm/abort"}
+ALWAYS_ALLOWED = {"/api/panel", "/api/estop", "/api/reset", "/api/alarm/clear", "/api/alarm/silence", "/api/alarm/abort"}
 
 
 class MoveReq(BaseModel):
@@ -46,6 +46,11 @@ class MoveReq(BaseModel):
 class JogReq(BaseModel):
     axis: str
     delta: float
+
+
+class PanelReq(BaseModel):
+    mode: str | None = None  # "dot" or "con"
+    step: float | None = None  # X/Y jog step for the front-panel keys (mm)
 
 
 class NozzleReq(BaseModel):
@@ -122,6 +127,22 @@ def create_app(machine: Machine, *, cameras: CameraManager | None = None, calibr
     add_feeder_routes(app, machine, feeders_path)
     add_bank_routes(app, machine, banks_path)
     add_job_routes(app, machine, job_path, rules_path)
+    from pnp.machine.panel import FrontPanel
+    app.state.panel = FrontPanel(machine, runner=app.state.runner)
+
+    @app.post("/api/panel")
+    async def set_panel(req: PanelReq):
+        """Front-panel jog mode and step (the UI's X/Y step buttons keep it in sync)."""
+        if req.mode is not None:
+            if req.mode not in ("dot", "con"):
+                raise HTTPException(400, "mode must be dot or con")
+            machine.panel["mode"] = req.mode
+        if req.step is not None:
+            if not req.step > 0:
+                raise HTTPException(400, "step must be greater than 0")
+            machine.panel["step"] = float(req.step)
+        machine._notify()
+        return machine.panel
 
     @app.get("/api/config/defaults")
     async def get_defaults():

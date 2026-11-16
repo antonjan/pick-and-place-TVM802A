@@ -230,6 +230,7 @@ const sentence = (t) => (t ? t.charAt(0).toUpperCase() + t.slice(1) : t);
 
 function render(s) {
   state = s;
+  renderPanel(s.panel);
   setPill($("#pill-conn"), s.connected ? "Connected" : "Offline", s.connected ? "success" : "danger");
   $("#pill-conn").title = s.connected ? "" : (s.link_error || "Not connected to the machine");
   const connectBtn = $("#btn-connect");
@@ -488,9 +489,39 @@ function initStepGroups() {
       b.addEventListener("click", () => {
         $$(`#${group} button`).forEach((x) => x.classList.remove("sel"));
         b.classList.add("sel");
+        // The X/Y step is shared with the machine's front-panel jog keys.
+        if (group === "xy-steps") setPanel({ step: parseFloat(b.dataset.step) });
       });
     }
   }
+  for (const b of $$("#panel-mode button")) {
+    b.addEventListener("click", () => setPanel({ mode: b.dataset.mode }));
+  }
+}
+
+async function setPanel(change) {
+  try {
+    await api("/api/panel", change);
+  } catch (_) { /* shown by api() */ }
+}
+
+// Front panel (Step / DotMove-ConMove keys) -> the Jog card's step and mode buttons.
+let shownPanel = { mode: null, step: null };
+
+function renderPanel(panel) {
+  if (!panel) return;
+  if (panel.step !== shownPanel.step) {
+    for (const b of $$("#xy-steps button")) {
+      b.classList.toggle("sel", Math.abs(parseFloat(b.dataset.step) - panel.step) < 1e-9);
+    }
+  }
+  if (panel.mode !== shownPanel.mode) {
+    for (const b of $$("#panel-mode button")) b.classList.toggle("sel", b.dataset.mode === panel.mode);
+  }
+  shownPanel = { mode: panel.mode, step: panel.step };
+  const names = { "x-": "X−", "x+": "X+", "y+": "Y+", "y-": "Y−", step: "Step", mode: "Dot/Con",
+                  start: "Start/Stop", pause: "Pause/Cont" };
+  $("#panel-keys").textContent = (panel.keys || []).map((k) => names[k] || k).join(" ");
 }
 
 async function jog(axis, dir) {
@@ -511,10 +542,13 @@ async function nozzleStep(nozzle, dir) {
   await api("/api/nozzle/down", { nozzle, depth }).catch(() => {});
 }
 
+// dir: +1 = anticlockwise, -1 = clockwise, seen from above. A positive angle turns the
+// nozzle anticlockwise on the machine (checked 2026-11-16), the same sense as KiCad's
+// part rotation, which the placement math relies on.
 async function rotateStep(nozzle, dir) {
   const step = selectedStep("a-steps");
   const cur = state ? state.position[`a${nozzle}`] : 0;
-  log(`rotate N${nozzle} ${dir > 0 ? "+" : "-"}${step}°`);
+  log(`rotate N${nozzle} ${dir > 0 ? "anticlockwise +" : "clockwise -"}${step}°`);
   await api("/api/move", { [`a${nozzle}`]: cur + dir * step }).catch(() => {});
 }
 
@@ -615,13 +649,16 @@ function configDefault(section, key, fallback) {
   return typeof machineDefault === "function" ? machineDefault(section, key, fallback) : fallback;
 }
 
-function askConfirm(message, okLabel = "OK") {
+function askConfirm(message, okLabel = "OK", { title = "Please confirm", danger = false } = {}) {
   return new Promise((resolve) => {
     const box = $("#confirm");
     const ok = $("#confirm-ok");
     const cancel = $("#confirm-cancel");
+    $("#confirm-title").textContent = title;
     $("#confirm-msg").textContent = message;
     ok.textContent = okLabel;
+    ok.classList.toggle("btn-danger", danger);
+    ok.classList.toggle("btn-primary", !danger);
     const finish = (answer) => {
       box.hidden = true;
       ok.removeEventListener("click", onOk);
@@ -635,6 +672,96 @@ function askConfirm(message, okLabel = "OK") {
     box.hidden = false;
     ok.focus();
   });
+}
+
+// Detection overlay on the camera views: what the down camera's Centre on mark and the up
+// camera's bottom vision would detect in the live picture, refreshed while switched on.
+// The shapes come in camera pixels; the SVG's viewBox is the picture size, so they line up
+// with the picture whatever size it is shown at.
+const detectOn = { down: false, up: false };
+let detectTimer = null;
+
+function detectQuery(name) {
+  if (name === "up") {
+    const sel = document.querySelector("#nozzle-sel button.sel");
+    return `nozzle=${sel ? sel.dataset.nozzle : 1}`;
+  }
+  const size = document.querySelector("#ref-mark-size");
+  const [lo, hi] = (size ? size.value : "0.3,4").split(",");
+  return `mark_min=${lo}&mark_max=${hi}&method=auto`;
+}
+
+function svgEl(tag, attrs) {
+  const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  return el;
+}
+
+function drawDetection(name, res) {
+  const svg = document.querySelector(`[data-det-overlay="${name}"]`);
+  const label = document.querySelector(`[data-det-label="${name}"]`);
+  if (!res) {
+    svg.replaceChildren();
+    label.textContent = "Detect: no picture";
+    return;
+  }
+  svg.setAttribute("viewBox", `0 0 ${res.width} ${res.height}`);
+  svg.setAttribute("preserveAspectRatio", "none");
+  const parts = [];
+  for (const s of res.shapes) {
+    const pts = s.points.map((p) => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ");
+    parts.push(svgEl("polygon", { points: pts, class: s.kind === "found" ? "det-found" : "det-zone" }));
+    if (s.centre) {
+      const [u, v] = s.centre;
+      parts.push(svgEl("path", { d: `M${u - 8},${v} H${u + 8} M${u},${v - 8} V${v + 8}`, class: "det-found" }));
+    }
+  }
+  svg.replaceChildren(...parts);
+  const found = res.shapes.find((s) => s.kind === "found");
+  label.textContent = found ? `Detected: ${found.label}` : (name === "up" ? "Detected: no part" : "Detected: no mark");
+  label.classList.toggle("none", !found);
+}
+
+async function pollDetection() {
+  for (const name of ["down", "up"]) {
+    if (!detectOn[name]) continue;
+    try {
+      const res = await fetch(`/api/vision/detect/${name}?${detectQuery(name)}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        drawDetection(name, { width: 1, height: 1, shapes: [] });
+        document.querySelector(`[data-det-label="${name}"]`).textContent = `Detect: ${data.detail || res.status}`;
+        continue;
+      }
+      if (detectOn[name]) drawDetection(name, data);
+    } catch (_) { /* server busy or gone: try again next time */ }
+  }
+}
+
+function setDetect(name, on) {
+  detectOn[name] = on;
+  document.querySelector(`[data-detect="${name}"]`).classList.toggle("on", on);
+  // An <svg> has no .hidden property (HTML elements only): set the attribute itself.
+  document.querySelector(`[data-det-overlay="${name}"]`).toggleAttribute("hidden", !on);
+  document.querySelector(`[data-det-label="${name}"]`).hidden = !on;
+  if (!on) document.querySelector(`[data-det-overlay="${name}"]`).replaceChildren();
+  const any = detectOn.down || detectOn.up;
+  if (any && detectTimer === null) {
+    pollDetection();
+    detectTimer = setInterval(pollDetection, 500);
+  } else if (!any && detectTimer !== null) {
+    clearInterval(detectTimer);
+    detectTimer = null;
+  }
+}
+
+function initDetection() {
+  for (const b of $$("[data-detect]")) {
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();  // not a click on the picture
+      setDetect(b.dataset.detect, !detectOn[b.dataset.detect]);
+    });
+  }
 }
 
 // ------------------------------------------------------------------ alarm popup
@@ -744,7 +871,7 @@ function fillForm(f) {
   set("pitch", round3(d.pitch));
   set("count", d.count);
   set("capacity", d.capacity);
-  set("rotation", round3(d.rotation));
+  set("rotation", round3(-d.rotation + 0));  // shown as an offset: + = anticlockwise
   set("pick_depth", round3(d.pick_depth));
   set("prick_x", d.prick ? round3(d.prick[0]) : "");
   set("prick_y", d.prick ? round3(d.prick[1]) : "");
@@ -782,7 +909,7 @@ function readFeederForm() {
     pitch: num("pitch", "pitch"),
     count: Math.trunc(num("count", "count")),
     capacity: text("capacity") === "" ? null : Math.trunc(num("capacity", "capacity")),
-    rotation: num("rotation", "part rotation"),
+    rotation: -num("rotation", "rotation offset") + 0,  // offset -> part rotation in the tape
     pick_depth: num("pick_depth", "pick depth"),
     prick,
     needs_feed: field("needs_feed").checked,
@@ -974,16 +1101,10 @@ async function saveFeeder() {
 
 // In-page confirmation (window.confirm is blocked in some browsers and webviews,
 // where it returns false at once). Resolves true only for the confirm button.
+// Confirmation for destructive actions (delete, reset, load layout): the in-page box
+// with a red confirm button.
 function confirmDialog({ title, body, confirmLabel }) {
-  const dlg = $("#confirm");
-  $("#confirm-title").textContent = title;
-  $("#confirm-body").textContent = body;
-  $("#confirm-ok").textContent = confirmLabel;
-  dlg.returnValue = "cancel";
-  return new Promise((resolve) => {
-    dlg.addEventListener("close", () => resolve(dlg.returnValue === "ok"), { once: true });
-    dlg.showModal();
-  });
+  return askConfirm(body, confirmLabel, { title, danger: true });
 }
 
 async function deleteFeeder() {
@@ -1144,6 +1265,7 @@ initControls();
 initFeeders();
 initPlaceTarget();
 initAlarm();
+initDetection();
 initVisionSwitch();
 initViews();
 initSetup();

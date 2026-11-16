@@ -51,6 +51,7 @@ function updateBankButtons() {
   for (const s of $$("#bank-list .layout-select")) s.disabled = locked || s.dataset.empty === "1";
   for (const el of $$("#bank-list .gen-form input, #bank-list .gen-form select")) el.disabled = locked;
   for (const el of $$("#bank-list [data-gen-camera]")) el.disabled = locked || !state;
+  for (const el of $$("#bank-list [data-gen-rotation]")) el.disabled = locked;
 }
 
 function bankCard(b) {
@@ -88,6 +89,7 @@ function bankCard(b) {
     submitGen(b.id, form);
   });
   form.querySelector("[data-gen-camera]").addEventListener("click", () => useCamera(b.id, form));
+  form.querySelector("[data-gen-rotation]").addEventListener("click", () => applyStackRotation(b.id, form));
   details.append(form);
   art.append(details);
   return art;
@@ -283,12 +285,16 @@ function genFormHtml() {
         <label>Sprocket side <select name="sprocket_side"><option value="1">+ side</option><option value="-1">− side</option></select></label>
         <label>Gap mm <input name="gap" class="num" type="number" step="any" min="0"></label>
         <label>Pick depth mm <input name="pick_depth" class="num" type="number" step="any" min="0"></label>
+        <label title="Added to every part placed from this stack: + = anticlockwise, −90 = 90° clockwise">Rotation offset ° <input name="rotation_offset" class="num" type="number" step="any"></label>
         <label>Lanes <input name="count" class="num" type="number" step="1" min="1" max="99"></label>
         <label>Default width <select name="default_width">${widthOpts}</select></label>
         <label>Default pitch <select name="default_pitch">${pitchOpts}</select></label>
       </div>
-      <div class="actions"><button type="button" class="btn btn-ghost" data-gen-camera>Use camera position</button></div>
-      <p class="hint">Lane 1's first pocket sits at the origin. Changing the default width or pitch sets every lane.</p>
+      <div class="actions">
+        <button type="button" class="btn btn-ghost" data-gen-camera>Use camera position</button>
+        <button type="button" class="btn btn-ghost" data-gen-rotation>Apply rotation offset to all lanes</button>
+      </div>
+      <p class="hint">Lane 1's first pocket sits at the origin. Changing the default width or pitch sets every lane. The rotation offset turns every part placed from this stack (−90 = 90° clockwise); Apply sets it on the existing lanes without generating them again.</p>
       <div class="table-wrap lanes-wrap">
         <table class="feeders">
           <thead><tr><th>Lane</th><th>Width</th><th>Pitch</th></tr></thead>
@@ -321,6 +327,7 @@ function initGenState(bank) {
     sprocket_side: "-1",
     gap: "0",
     pick_depth: String(configDefault("head", "pick_depth", 3)),
+    rotation_offset: first ? String(round3(-(first.rotation || 0) + 0)) : "0",
     default_width: 8,
     default_pitch: defaultPitch,
     lanes: Array.from({ length: n }, (_, i) => ({
@@ -348,6 +355,7 @@ function fillGenForm(id, form) {
   f("sprocket_side").value = st.sprocket_side;
   f("gap").value = st.gap;
   f("pick_depth").value = st.pick_depth;
+  f("rotation_offset").value = st.rotation_offset ?? "0";
   f("count").value = String(st.lanes.length);
   f("default_width").value = String(st.default_width);
   f("default_pitch").value = String(st.default_pitch);
@@ -391,6 +399,7 @@ function syncGenForm(id, form) {
   st.sprocket_side = f("sprocket_side").value;
   st.gap = f("gap").value;
   st.pick_depth = f("pick_depth").value;
+  st.rotation_offset = f("rotation_offset").value;
 
   let rowsChanged = false;
   const dw = Number(f("default_width").value);
@@ -424,6 +433,20 @@ function useCamera(id, form) {
   syncGenForm(id, form);
 }
 
+// The stack's rotation offset on its existing lanes, without generating them again.
+async function applyStackRotation(id, form) {
+  syncGenForm(id, form);
+  const st = genStates.get(id);
+  let offset;
+  try {
+    offset = parseNum(st.rotation_offset || "0", "Rotation offset");
+  } catch (err) {
+    reportError(err);
+    return;
+  }
+  await bankAction(`Rotation offset ${offset}° for ${id}`, () => api(bankPath(id, "/rotation"), { offset }));
+}
+
 async function submitGen(id, form) {
   syncGenForm(id, form);
   const st = genStates.get(id);
@@ -438,6 +461,7 @@ async function submitGen(id, form) {
       sprocket_side: Number(st.sprocket_side),
       gap: parseNum(st.gap, "Gap"),
       pick_depth: parseNum(st.pick_depth, "Pick depth"),
+      rotation_offset: parseNum(st.rotation_offset || "0", "Rotation offset"),
       lanes: st.lanes.map((ln) => ({ width: ln.width, pitch: ln.pitch })),
       keep_parts: true,
     };

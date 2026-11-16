@@ -238,7 +238,8 @@ def test_import_and_errors(env):
     assert job_state(c) == {"job": None, "plan": [],
                             "status": {"state": "idle", "current": None, "message": None,
                                        "placed": 0, "failed": 0, "skipped": 0, "pending": 0, "total": 0,
-                                       "last_inspection": {"1": None, "2": None}}}
+                                       "last_inspection": {"1": None, "2": None}, "step": None,
+                                       "holding": {"1": None, "2": None}}}
     assert c.post("/api/job/import", json={"name": "x", "filename": "x.pos", "text": ""}).status_code == 400
     bad = "R1 10k R_0805 abc 4 0 top\n"
     assert c.post("/api/job/import", json={"name": "x", "filename": "x.pos", "text": bad}).status_code == 400
@@ -605,3 +606,126 @@ def test_align_two_points_sets_origin_and_rotation(env):
     assert r.status_code == 400 and "apart" in r.json()["detail"]
     assert c.post("/api/job/align/two-points", json=dict(body, board=9)).status_code == 400
 
+
+
+def test_disable_enable_and_remove_parts(tmp_path):
+    with start_app(tmp_path) as e:
+        c = e.client
+        assert c.post("/api/job/import", json={"name": "Demo", "filename": "demo.pos",
+                                                "text": DEMO.read_text()}).status_code == 200
+        assert c.put("/api/job/panel", json={"boards": [{"x": 0, "y": 0}, {"x": 50, "y": 0}]}).status_code == 200
+
+        def parts(s):
+            return {p["ref"]: p for p in s["job"]["parts"]}
+
+        def items(s, ref):
+            return [i for i in s["plan"] if i["ref"] == ref]
+
+        # disable two parts at once: kept in the job, skipped on every board
+        r = c.post("/api/job/parts/enable", json={"refs": ["R1", "C1"], "enabled": False})
+        assert r.status_code == 200
+        s = r.json()
+        assert parts(s)["R1"]["skip"] and parts(s)["C1"]["skip"] and not parts(s)["C2"]["skip"]
+        assert [i["status"] for i in items(s, "R1")] == ["skipped", "skipped"]
+        # enable again
+        s = c.post("/api/job/parts/enable", json={"refs": ["R1"], "enabled": True}).json()
+        assert not parts(s)["R1"]["skip"] and parts(s)["C1"]["skip"]
+        assert [i["status"] for i in items(s, "R1")] == ["pending", "pending"]
+        assert c.post("/api/job/parts/enable", json={"refs": ["NOPE"], "enabled": True}).status_code == 404
+
+        # remove a part: gone from the job, its statuses and reference point ref with it
+        job_path = e.tmp / "job.yaml"
+        from pnp.job.job import JobStore
+        store = JobStore(job_path)
+        job = store.load()
+        job.status = {"0:R2": "placed", "1:R2": "failed", "0:R1": "placed"}
+        job.references = [{"ref": "R2", "x": 5.0, "y": 12.0}, {"ref": None, "x": 0.0, "y": 0.0}]
+        store.save(job)
+        n = len(parts(job_state(c)))
+        r = c.delete("/api/job/parts/R2")
+        assert r.status_code == 200
+        s = r.json()
+        assert "R2" not in parts(s) and len(parts(s)) == n - 1
+        assert items(s, "R2") == []
+        job = store.load()
+        assert job.status == {"0:R1": "placed"}
+        assert job.references[0] == {"ref": None, "x": 5.0, "y": 12.0}
+        assert c.delete("/api/job/parts/R2").status_code == 404
+
+
+PAGE_CSV = """Ref,Val,Package,PosX,PosY,Rot,Side
+"C3","10uF","C_0805_2012Metric",132.483570,-47.774766,-90.000000,top
+"C21","100nF","C_0805_2012Metric",117.000000,-99.599504,-90.000000,top
+"C16","8pF","C_0805_2012Metric",108.937500,-109.000000,180.000000,top
+"""
+
+
+def test_two_points_in_other_coordinates_are_refused_and_board_kept(tmp_path):
+    """The machine case of 2026-11-16: Point 1 = 0,0 and Point 2 with KiCad's on-screen
+    (positive) Y, against a file in page coordinates. Refused; the board isn't changed."""
+    with start_app(tmp_path) as e:
+        c = e.client
+        assert c.post("/api/job/import", json={"name": "page", "filename": "p.csv", "text": PAGE_CSV}).status_code == 200
+        assert c.post("/api/home").status_code == 200
+        assert c.put("/api/job/board", json={"origin": [-80, 160], "rotation": 0}).status_code == 200
+
+        def two(a, b, wa=(-40.326, -39.655), wb=(26.9, 50.3)):
+            return c.post("/api/job/align/two-points", json={
+                "board": 0,
+                "a": {"ref": None, "x": a[0], "y": a[1], "world_x": wa[0], "world_y": wa[1]},
+                "b": {"ref": None, "x": b[0], "y": b[1], "world_x": wb[0], "world_y": wb[1]}})
+
+        r = two((0, 0), (67.056, 90.0938))
+        assert r.status_code == 400 and "page origin" in r.json()["detail"]
+        # file coordinates, but camera captures that put the board off the bed
+        r = two((92.0, -41.747), (150.0, -120.75), wa=(-40.0, -60.0), wb=(18.0, -139.0))
+        assert r.status_code == 400 and "outside the machine" in r.json()["detail"]
+        assert job_state(c)["job"]["origin"] == [-80.0, 160.0]  # unchanged
+        # good: the two board corners where the camera saw them on the bed
+        r = two((92.0, -41.747), (150.0, -120.75), wa=(12.0, 118.253), wb=(70.0, 39.25))
+        assert r.status_code == 200, r.text
+        assert r.json()["job"]["rotation"] == pytest.approx(0.0, abs=0.05)
+
+
+def test_edit_part_placement_and_nozzle_angle_follows_feeder_offset(tmp_path):
+    with start_app(tmp_path) as e:
+        c = e.client
+        assert c.post("/api/job/import", json={"name": "Demo", "filename": "demo.pos",
+                                                "text": DEMO.read_text()}).status_code == 200
+        f9 = {"kind": "strip", "pick": [100, 50], "direction": [1, 0], "pitch": 4,
+              "value": "10k", "package": "R_0805_2012Metric", "rotation": 0}
+        r = c.put("/api/feeders/F9", json=f9)
+        assert r.status_code == 200, r.text
+        s = job_state(c)
+        r1 = next(i for i in s["plan"] if i["ref"] == "R1")
+        assert r1["feeder"] == "F9" and r1["nozzle_angle"] == pytest.approx(r1["rotation"])
+        # rotation offset -90 on the feeder (stored as +90 in the tape): the nozzle turns 90 deg more clockwise
+        part = next(p for p in s["job"]["parts"] if p["ref"] == "R1")
+        assert c.put("/api/feeders/F9", json={**f9, "rotation": 90.0}).status_code == 200
+        r1 = next(i for i in job_state(c)["plan"] if i["ref"] == "R1")
+        assert r1["nozzle_angle"] == pytest.approx(r1["rotation"] - 90.0)
+
+        # edit R1's placement in the file coordinates
+        body = {"skip": False, "nozzle": None, "feeder": None, "vision": None, "x": 6.5, "y": -3.25, "rotation": -90}
+        r = c.put("/api/job/parts/R1", json=body)
+        assert r.status_code == 200, r.text
+        part = next(p for p in r.json()["job"]["parts"] if p["ref"] == "R1")
+        assert (part["x"], part["y"], part["rotation"]) == (6.5, -3.25, 270.0)
+        # fields left out stay as they are
+        r = c.put("/api/job/parts/R1", json={"skip": False, "nozzle": None, "feeder": None, "vision": None, "x": 7.0})
+        part = next(p for p in r.json()["job"]["parts"] if p["ref"] == "R1")
+        assert (part["x"], part["y"], part["rotation"]) == (7.0, -3.25, 270.0)
+
+
+def test_detection_overlay_endpoint(cam):
+    c = cam.client
+    r = c.get("/api/vision/detect/down?mark_min=0.3&mark_max=4&method=auto")
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["camera"] == "down" and d["width"] > 0 and d["height"] > 0
+    zones = [s for s in d["shapes"] if s["kind"] == "zone"]
+    assert [z["label"] for z in zones] == ["Ø 0.3 mm", "Ø 4 mm"]
+    assert isinstance(d["found"], bool)
+    assert c.get("/api/vision/detect/down?mark_min=5&mark_max=3").status_code == 400
+    assert c.get("/api/vision/detect/down?method=nope").status_code == 400
+    assert c.get("/api/vision/detect/up").status_code == 404  # this app has no up camera

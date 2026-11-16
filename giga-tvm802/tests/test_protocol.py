@@ -38,7 +38,9 @@ def test_stop_frames():
     assert p.encode_stop(Axis.X) == h("09 00 04 00")
     assert p.encode_stop(Axis.Y) == h("09 00 10 00")
     assert p.encode_stop(Axis.Z) == h("09 00 02 00")
-    assert p.encode_stop(Axis.A1) == h("09 00 08 00")
+    # rotation motors swapped vs the Node bridge: checked on the real machine 2026-11-16
+    assert p.encode_stop(Axis.A2) == h("09 00 08 00")
+    assert p.encode_stop(Axis.A1) == h("09 00 20 00")
     assert p.encode_stop(0x3F) == h("09 00 3f 00")
 
 
@@ -55,12 +57,12 @@ def test_set_y_home_register_matches_vendor_capture():
 
 
 def test_multi_axis_move_layout():
-    frame = p.encode_move({Axis.X: 1, Axis.Z: -2, Axis.A2: 3})
+    frame = p.encode_move({Axis.X: 1, Axis.Z: -2, Axis.A1: 3})
     assert len(frame) == 28
-    assert frame[2] == Axis.X | Axis.Z | Axis.A2
+    assert frame[2] == Axis.X | Axis.Z | Axis.A1 == 0x26
     assert frame[8:12] == (-2).to_bytes(4, "little", signed=True)  # Z slot 1
     assert frame[12:16] == (1).to_bytes(4, "little")  # X slot 2
-    assert frame[24:28] == (3).to_bytes(4, "little")  # A2 slot 5
+    assert frame[24:28] == (3).to_bytes(4, "little")  # A1 (nozzle 1) slot 5
     assert frame[16:24] == bytes(8)
 
 
@@ -91,7 +93,8 @@ def test_state_roundtrip_signed_positions():
 
 
 def test_state_offsets_match_node_bridge():
-    # Node reads Z at hex chars 32..40 (bytes 16..19), X 40..48, A1 48..56, Y 56..64, A2 64..72
+    # Node reads Z at hex chars 32..40 (bytes 16..19), X 40..48, A1 48..56, Y 56..64, A2 64..72;
+    # the Node bridge's A1/A2 are this app's nozzle 2 / nozzle 1 (swapped 2026-11-16)
     frame = bytearray(44)
     frame[16:20] = (1).to_bytes(4, "little")
     frame[20:24] = (2).to_bytes(4, "little")
@@ -100,7 +103,7 @@ def test_state_offsets_match_node_bridge():
     frame[32:36] = (5).to_bytes(4, "little")
     frame[8] = 0x10  # no pressure on N1
     s = p.decode_state(bytes(frame))
-    assert s.positions == {Axis.Z: 1, Axis.X: 2, Axis.A1: 3, Axis.Y: 4, Axis.A2: 5}
+    assert s.positions == {Axis.Z: 1, Axis.X: 2, Axis.A2: 3, Axis.Y: 4, Axis.A1: 5}
     assert s.pressure1 is False and s.pressure2 is True
 
 

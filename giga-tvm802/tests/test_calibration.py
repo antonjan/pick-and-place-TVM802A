@@ -412,3 +412,62 @@ def test_centre_refuses_large_jump():
     with pytest.raises(CalibrationError, match="mm away"):
         asyncio.run(centre_on_blob(machine, camera, A_DOWN))
     assert machine.moves == []
+
+
+def test_centre_on_a_mounting_hole_with_the_large_mark_size():
+    """Job tab reference points: 5 and 7 mm holes centre with mark_mm=(3, 8)."""
+    for radius, at in ((2.5, (1.2, 0.8)), (3.5, (-1.5, 2.0))):
+        hole_at = np.array(at)
+        canvas = disc_canvas(hole_at, radius_mm=radius)
+        machine = FakeMachine(0.0, 0.0)
+        camera = FakeCamera(machine, A_DOWN, canvas)
+        x, y = asyncio.run(centre_on_blob(machine, camera, A_DOWN, mark_mm=(3.0, 8.0), max_move_mm=8.0))
+        assert np.allclose((x, y), hole_at, atol=0.05), (radius, x, y)
+
+
+# Real down-camera frames (2026-11-16): a 3.25 mm corner hole of the board (dark inside,
+# on dark solder mask, only a faint edge ring) with "USB" silkscreen above it. Centring
+# jumped to the letters: the threshold search can't separate the hole at all in the
+# faint frame. The Job tab's Centre on mark uses method "auto" (circle edge first).
+FRAMES = {  # hole centre (continuous px) found in the unshifted frame
+    "down.jpg": (220.73, 318.39),          # brighter edge ring
+    "corner_faint.jpg": (225.13, 282.55),  # faint edge ring
+}
+CUTOUT_DIR = Path(__file__).parent / "data" / "cutout_usb"
+CUTOUT_K = 41.42  # px per mm of the down camera that took them
+
+
+def _shifted(gray, crosshair):
+    """The frame moved so that `crosshair` (u, v) sits at the image centre."""
+    h, w = gray.shape
+    M = np.float32([[1, 0, w / 2 - crosshair[0]], [0, 1, h / 2 - crosshair[1]]])
+    return cv2.warpAffine(gray, M, (w, h), borderMode=cv2.BORDER_REPLICATE), (w / 2 - crosshair[0], h / 2 - crosshair[1])
+
+
+@pytest.mark.parametrize("frame", sorted(FRAMES))
+@pytest.mark.parametrize("offset", [(0, 0), (0, -60), (0, -85), (-30, -20), (25, 25)])
+@pytest.mark.parametrize("mark_mm", [(0.3, 4.0), (1.0, 4.0), (3.0, 8.0)])
+def test_real_corner_hole_is_found_not_the_text(frame, offset, mark_mm):
+    from pnp.vision.calibration import find_mark
+    gray = cv2.cvtColor(cv2.imread(str(CUTOUT_DIR / frame)), cv2.COLOR_BGR2GRAY)
+    centre = FRAMES[frame]
+    img, (sx, sy) = _shifted(gray, (centre[0] + offset[0], centre[1] + offset[1]))
+    found = find_mark(img, CUTOUT_K, mark_mm, method="auto")
+    assert found is not None
+    # the same hole wherever the crosshair starts, to within 2 px (0.05 mm)
+    assert abs(found[0] - sx - centre[0]) < 2.0 and abs(found[1] - sy - centre[1]) < 2.0, found
+
+
+def test_circle_method_finds_nothing_on_a_plain_frame():
+    from pnp.vision.calibration import find_mark
+    assert find_mark(np.full((480, 640), 120, np.uint8), CUTOUT_K, (1.0, 4.0), method="circle") is None
+    with pytest.raises(ValueError):
+        find_mark(np.zeros((10, 10), np.uint8), CUTOUT_K, method="nope")
+
+
+def test_find_mark_reports_the_hole_radius_for_the_overlay():
+    from pnp.vision.calibration import find_mark
+    gray = cv2.cvtColor(cv2.imread(str(CUTOUT_DIR / "corner_faint.jpg")), cv2.COLOR_BGR2GRAY)
+    u, v, r = find_mark(gray, CUTOUT_K, (1.0, 4.0), method="auto", with_radius=True)
+    assert abs(u - FRAMES["corner_faint.jpg"][0]) < 0.5 and abs(v - FRAMES["corner_faint.jpg"][1]) < 0.5
+    assert 2 * r / CUTOUT_K == pytest.approx(3.25, abs=0.25)  # the board's 3.25 mm holes

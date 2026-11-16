@@ -210,6 +210,75 @@ def fit_two_points(a_panel: tuple[float, float], a_world: tuple[float, float],
     }
 
 
+# A reference point further than this from every part can't be on the board (or uses
+# other coordinates than the position file). Generous: mounting holes and board
+# corners sit outside the parts' area, but not by tens of mm.
+REFERENCE_MARGIN = 40.0
+# Measured A-B distance vs the board's: more than this means a wrong feature or point.
+DISTANCE_TOLERANCE_MM = 1.0
+DISTANCE_TOLERANCE_REL = 0.02
+
+
+def parts_extent(job: Job) -> tuple[float, float, float, float] | None:
+    """(min_x, max_x, min_y, max_y) of the top-side parts in board coordinates, or None."""
+    top = [p for p in job.parts if p.side != "bottom"]
+    if not top:
+        return None
+    xs, ys = [p.x for p in top], [p.y for p in top]
+    return min(xs), max(xs), min(ys), max(ys)
+
+
+def check_reference_point(job: Job, name: str, x: float, y: float) -> None:
+    """ValueError when a reference point can't be in the position file's coordinates:
+    far away from every part. The message says why it is probably wrong."""
+    ext = parts_extent(job)
+    if ext is None:
+        return
+    x0, x1, y0, y1 = ext
+    dist = math.hypot(max(x0 - x, 0.0, x - x1), max(y0 - y, 0.0, y - y1))
+    if dist <= REFERENCE_MARGIN:
+        return
+    msg = (f"{name} (X {x:g}, Y {y:g}) is {dist:.0f} mm away from every part in the position file "
+           f"(the parts are at X {x0:.1f} to {x1:.1f}, Y {y0:.1f} to {y1:.1f}). A reference point must use "
+           "the file's coordinates.")
+    if y > 0 and y1 < 0:
+        msg += (f" KiCad shows Y as positive downwards, but the position file stores it negated: "
+                f"try Y {-y:g}.")
+    if abs(x) < 1e-9 and abs(y) < 1e-9:
+        msg += (" Here 0, 0 is KiCad's page origin, not the board corner (the file wasn't exported "
+                "with the drill/place file origin).")
+    msg += " Easiest: pick a part for the point, so its file position is filled in."
+    raise ValueError(msg)
+
+
+def check_distances(result: dict[str, Any]) -> None:
+    """ValueError when the measured A-B distance doesn't match the board's."""
+    board, err = result["board_distance"], result["distance_error"]
+    if abs(err) > max(DISTANCE_TOLERANCE_MM, DISTANCE_TOLERANCE_REL * board):
+        raise ValueError(
+            f"the two points are {board:.2f} mm apart on the board but {result['measured_distance']:.2f} mm "
+            "apart where the camera captured them: one of them is on the wrong feature, or its board X/Y "
+            "is wrong")
+
+
+def placements_outside(job: Job, x_range: tuple[float, float], y_range: tuple[float, float],
+                       margin: float = 0.0) -> list[tuple[str, float, float]]:
+    """(ref, world x, world y) of every top-side part on a non-skipped board that lands
+    outside the machine's X/Y range with the job's current origin and rotation."""
+    out = []
+    for b, board in enumerate(job.boards):
+        if board.skip:
+            continue
+        for p in job.parts:
+            if p.side == "bottom":
+                continue
+            wx, wy = to_world(job, b, p.x, p.y)
+            if not (x_range[0] - margin <= wx <= x_range[1] + margin
+                    and y_range[0] - margin <= wy <= y_range[1] + margin):
+                out.append((p.ref if len(job.boards) == 1 else f"{p.ref} (board {b + 1})", wx, wy))
+    return out
+
+
 def clear_fit(job: Job) -> None:
     """Forget the fiducial measurement (the origin or rotation was changed by hand)."""
     job.fit = None
@@ -294,6 +363,8 @@ class PlanItem:
                              # "No feeder for <value> <package>", "Feeder <id> is empty", "Board origin not set"
     vision: bool = True                  # inspect on the up camera before placing (PackageRules.vision_for)
     body: list[float] | None = None      # (length, width) mm to check against, None = no size check
+    nozzle_angle: float | None = None    # deg the nozzle turns to for the place: rotation minus the
+                                         # part's rotation in the tape (the feeder's rotation); None = no feeder
 
 
 def _natural_key(ref: str) -> list[Any]:
@@ -370,6 +441,7 @@ def plan(job: Job, feeders: list[Feeder], rules: PackageRules) -> list[PlanItem]
                 problem=problem,
                 vision=vision,
                 body=body,
+                nozzle_angle=(rotation - feeder.rotation) if feeder is not None else None,
             )
             sort_key = (b_index, nozzle, feeder_id or "", _natural_key(part.ref))
             items.append((sort_key, item))

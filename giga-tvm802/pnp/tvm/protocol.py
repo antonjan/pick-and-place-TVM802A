@@ -41,22 +41,25 @@ class Axis(IntFlag):
 
     Z = 0x02  # seesaw: + lowers nozzle 1, - lowers nozzle 2
     X = 0x04
-    A1 = 0x08  # nozzle 1 rotation
+    # Rotation motors, swapped vs the Node bridge (seen on the real machine 2026-11-16:
+    # "N1" turned nozzle 2), like the vacuum outputs. Bit, frame slot and state offset of
+    # each motor stay together; only which nozzle they belong to changed.
+    A2 = 0x08  # nozzle 2 rotation (the Node bridge's "A1")
     Y = 0x10
-    A2 = 0x20  # nozzle 2 rotation
+    A1 = 0x20  # nozzle 1 rotation (the Node bridge's "A2")
 
     ALL = 0x3E
 
 
 # Every single axis, in wire-slot order.
-AXES: tuple[Axis, ...] = (Axis.Z, Axis.X, Axis.A1, Axis.Y, Axis.A2)
+AXES: tuple[Axis, ...] = (Axis.Z, Axis.X, Axis.A2, Axis.Y, Axis.A1)
 
 # Slot index of each axis inside a 28-byte MOVE/SET_POSITION frame.
 # The int32 for an axis lives at byte 4 + slot*4.
-AXIS_SLOT: dict[Axis, int] = {Axis.Z: 1, Axis.X: 2, Axis.A1: 3, Axis.Y: 4, Axis.A2: 5}
+AXIS_SLOT: dict[Axis, int] = {Axis.Z: 1, Axis.X: 2, Axis.A2: 3, Axis.Y: 4, Axis.A1: 5}
 
 # Byte offset of each axis position inside the 44-byte state reply.
-STATE_POS_OFFSET: dict[Axis, int] = {Axis.Z: 16, Axis.X: 20, Axis.A1: 24, Axis.Y: 28, Axis.A2: 32}
+STATE_POS_OFFSET: dict[Axis, int] = {Axis.Z: 16, Axis.X: 20, Axis.A2: 24, Axis.Y: 28, Axis.A1: 32}
 
 
 class Output(IntFlag):
@@ -95,6 +98,20 @@ NO_PRESSURE_2 = 0x10  # bit in state-reply byte 10
 # position (lags the prick output by the needle's travel time), so it can catch a
 # needle that did not go down or is stuck down.
 NEEDLE_UP = 0x08
+
+# Front-panel keys (found on the real machine 2026-11-16 with pnp.tvm.keyprobe): one
+# bit each in state-reply bytes 9 and 10, active low (set = released, clear = held).
+# The controller does nothing with them itself; the app decides what they do.
+PANEL_KEYS: dict[str, tuple[int, int]] = {
+    "mode": (10, 0x02),   # DotMove / ConMove
+    "x-": (10, 0x01),
+    "x+": (9, 0x10),
+    "y+": (10, 0x04),
+    "y-": (9, 0x08),
+    "step": (9, 0x20),
+    "start": (9, 0x80),   # Start / Stop
+    "pause": (9, 0x40),   # Pause / Cont
+}
 
 STATE_REPLY_LEN = 44
 MOVE_FRAME_LEN = 28
@@ -250,6 +267,7 @@ class MachineState:
     pressure2: bool
     positions: dict[Axis, int] = field(default_factory=dict)
     needle_up: bool = True  # feeder needle sensor (byte 10 bit 0x08)
+    keys: frozenset[str] = frozenset()  # front-panel keys held down (names from PANEL_KEYS)
     raw: bytes = b""
 
     @property
@@ -288,6 +306,7 @@ def decode_state(frame: bytes) -> MachineState:
         pressure2=not (frame[10] & NO_PRESSURE_2),
         positions=positions,
         needle_up=bool(frame[10] & NEEDLE_UP),
+        keys=frozenset(k for k, (i, bit) in PANEL_KEYS.items() if not frame[i] & bit),
         raw=bytes(frame),
     )
 
@@ -299,12 +318,16 @@ def encode_state(
     pressure1: bool = False,
     pressure2: bool = False,
     needle_up: bool = True,
+    keys: frozenset[str] | set[str] = frozenset(),
 ) -> bytes:
     """Build a state reply (used by the simulator and tests)."""
     frame = bytearray(STATE_REPLY_LEN)
     struct.pack_into("<I", frame, 4, outputs & 0xFFFFFFFF)
     frame[8] = (limits & 0x0F) | (0 if pressure1 else Input.NO_PRESSURE_1)
     frame[10] = (0 if pressure2 else NO_PRESSURE_2) | (NEEDLE_UP if needle_up else 0)
+    for name, (i, bit) in PANEL_KEYS.items():  # keys are active low: released = bit set
+        if name not in keys:
+            frame[i] |= bit
     for axis, off in STATE_POS_OFFSET.items():
         struct.pack_into("<i", frame, off, _check_int32(positions.get(axis, 0)))
     return bytes(frame)

@@ -63,6 +63,9 @@ class GenerateSpec:
     lanes: list[LaneSpec] = field(default_factory=list)   # at least 1, at most 99
     keep_parts: bool = True                   # carry value/package/rotation/pick_depth/count/enabled over from
                                               # existing lanes with the same lane number
+    # Rotation offset for every lane of the stack (deg, + = anticlockwise, -90 = parts placed 90 deg
+    # more clockwise). None = keep each lane's own value. Stored as Feeder.rotation = -offset.
+    rotation_offset: float | None = None
 
     def __post_init__(self) -> None:
         self.origin = (float(self.origin[0]), float(self.origin[1]))
@@ -124,6 +127,8 @@ def generate_lanes(bank_id: str, spec: GenerateSpec, existing: list[Feeder]) -> 
             feeder.count = old.count
             feeder.enabled = old.enabled
             feeder.name = old.name
+        if spec.rotation_offset is not None:
+            feeder.rotation = -float(spec.rotation_offset) + 0.0  # + 0.0: no -0.0
         feeders.append(feeder)
     return feeders
 
@@ -224,6 +229,15 @@ class BankStore:
             raise BankError(str(exc)) from exc
         bank.active_layout = None  # the lanes no longer match a saved layout
         self.save()
+        return lanes
+
+    def set_rotation_offset(self, id: str, offset: float) -> list[Feeder]:
+        """Give every lane of the bank the same rotation offset (deg, -90 = 90 deg clockwise)."""
+        self.get(id)
+        lanes = self.feeders.by_bank(id)
+        for f in lanes:
+            f.rotation = -float(offset) + 0.0
+        self.feeders.save()
         return lanes
 
     def save_layout(self, id: str, name: str) -> None:

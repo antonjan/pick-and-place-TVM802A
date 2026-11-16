@@ -693,3 +693,32 @@ td.problem { white-space: normal; min-width: 160px; }
 .def-advanced summary { cursor: pointer; padding: var(--space-1) 0; }
 .def-advanced .def-warn { margin: var(--space-4) 0 0; }
 @media (max-width: 640px) { .def-cards { grid-template-columns: 1fr; } }
+
+/* ---- front-panel keys (Jog card) ---- */
+.panel-keys { font: var(--type-mono); color: var(--accent); min-width: 4em; }
+
+/* ---- job parts: on/off switch, disabled rows, bulk buttons ---- */
+#job-parts .card-head { flex-wrap: wrap; }
+.parts-bulk { display: flex; gap: var(--space-2); margin-left: auto; }
+#job-parts .card-head .segmented { margin-left: 0; }
+.parts-hint { margin: 0 0 var(--space-3); }
+input.part-on { width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; }
+input.part-on:disabled { cursor: not-allowed; }
+table.parts tr.part-off td:not(:first-child) { opacity: 0.45; }
+
+/* ---- Job tab: nozzle state + reset ---- */
+.nozzle-state { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); margin-top: var(--space-3); }
+.nozzle-state .value { margin: 0; }
+#job-holding.holds { color: var(--warning, var(--accent)); font-weight: 600; }
+
+/* ---- job parts: editable placement ---- */
+table.parts input.part-coord[type="number"] { width: 78px; }
+table.parts td.place-at { white-space: nowrap; color: var(--text-secondary); }
+
+/* ---- detection overlay on the camera views ---- */
+.view { position: relative; }
+.det-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+.det-overlay .det-zone { fill: none; stroke: #ffd400; stroke-width: 1.5; stroke-dasharray: 6 5; vector-effect: non-scaling-stroke; opacity: 0.85; }
+.det-overlay .det-found { fill: none; stroke: #00e676; stroke-width: 2.5; vector-effect: non-scaling-stroke; }
+.det-label { margin: var(--space-1) 0 0; font: var(--type-mono); font-size: 12px; color: var(--success); max-width: calc(var(--cam-h, 240px) * 1.4); }
+.det-label.none { color: var(--warning, var(--text-muted)); }

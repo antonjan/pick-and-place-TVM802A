@@ -1,9 +1,9 @@
-name: grelay4-low_power-all-pos
-source: grelay4-low_power-all-pos.csv
+name: Voip_Board-all
+source: Voip_Board-all.pos
 origin:
-- 23.287
-- 40.661
-rotation: -0.06085886349086422
+- -40.50707039103585
+- -40.06408073463173
+rotation: -0.1546081798703085
 boards:
 - x: 0.0
   y: 0.0
@@ -11,517 +11,1122 @@ boards:
   skip: false
 parts:
 - ref: C1
-  value: 100nF
-  package: C_0805_2012Metric
-  x: 107.5
-  y: -70.94495
+  value: 10uF
+  package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
+  x: 18.6209
+  y: 35.7059
   rotation: 90.0
   side: top
-  skip: false
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: C2
+  value: 10uF
+  package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
+  x: 18.6233
+  y: 25.7061
+  rotation: 90.0
+  side: top
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: C3
-  value: 10uF
+  value: 10uF_16V
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
-  x: 132.48357
-  y: -47.774766
-  rotation: 270.0
+  x: 17.011
+  y: 73.4724
+  rotation: 180.0
   side: top
-  skip: false
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: C4
-  value: 100nF
-  package: C_0805_2012Metric
-  x: 134.5
-  y: -70.95
-  rotation: 90.0
+  value: DNP
+  package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
+  x: 19.3193
+  y: 11.9901
+  rotation: 270.0
   side: top
-  skip: false
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: C5
-  value: 100nF
+  value: 22uF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
-  x: 146.9625
-  y: -97.0
-  rotation: 0.0
+  x: 18.6233
+  y: 29.7701
+  rotation: 270.0
   side: top
-  skip: false
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: C6
   value: 22uF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
-  x: 139.0375
-  y: -56.0
-  rotation: 0.0
+  x: 18.6233
+  y: 39.9301
+  rotation: 270.0
   side: top
-  skip: false
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: C7
-  value: 100nF
-  package: C_0805_2012Metric
-  x: 134.5
-  y: -86.55
+  value: DNP
+  package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
+  x: 19.3193
+  y: 16.0541
   rotation: 90.0
   side: top
-  skip: false
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: C8
+  value: 1uF
+  package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
+  x: 56.2129
+  y: 65.3438
+  rotation: 270.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: C9
+  value: 1nF
+  package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
+  x: 53.1235
+  y: 66.3383
+  rotation: 180.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: C10
+  value: 100nF
+  package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
+  x: 45.5035
+  y: 62.8038
+  rotation: 270.0
+  side: top
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: C11
-  value: 100nF
-  package: C_0805_2012Metric
-  x: 107.5
-  y: -85.45
+  value: 10pF
+  package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
+  x: 48.1103
+  y: 45.8405
+  rotation: 0.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: C12
+  value: 1uF
+  package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
+  x: 57.6861
+  y: 41.5987
   rotation: 90.0
   side: top
-  skip: false
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: C13
   value: 1uF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
-  x: 118.0
-  y: -95.0375
-  rotation: 90.0
+  x: 56.8987
+  y: 57.4737
+  rotation: 180.0
   side: top
-  skip: false
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: C14
   value: 1uF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
-  x: 105.378233
-  y: -98.643029
-  rotation: 180.0
+  x: 56.1621
+  y: 75.2537
+  rotation: 270.0
   side: top
-  skip: false
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: C15
-  value: 8pF
+  value: 1nF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
-  x: 105.883846
-  y: -106.234634
+  x: 52.9109
+  y: 55.5179
   rotation: 180.0
   side: top
-  skip: false
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: C16
-  value: 8pF
+  value: 1nF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
-  x: 108.9375
-  y: -109.0
+  x: 53.1075
+  y: 72.1803
   rotation: 180.0
   side: top
-  skip: false
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: C17
-  value: 10nF
+  value: 100nF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
-  x: 105.378233
-  y: -100.763029
-  rotation: 0.0
+  x: 45.509
+  y: 72.6883
+  rotation: 270.0
   side: top
-  skip: false
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: C18
-  value: 2pF
+  value: 100nF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
-  x: 117.7025
-  y: -112.20308
-  rotation: 180.0
+  x: 45.5289
+  y: 53.2319
+  rotation: 270.0
   side: top
-  skip: false
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: C19
-  value: 2pF
+  value: 1uF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
-  x: 117.6575
-  y: -105.83308
-  rotation: 180.0
+  x: 58.3211
+  y: 82.1117
+  rotation: 90.0
   side: top
-  skip: false
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: C20
   value: 10uF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
-  x: 121.175
-  y: -93.886475
-  rotation: 180.0
+  x: 31.4987
+  y: 55.5941
+  rotation: 0.0
   side: top
-  skip: false
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: C21
   value: 100nF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
-  x: 117.0
-  y: -99.599504
-  rotation: 270.0
+  x: 31.4987
+  y: 53.6129
+  rotation: 0.0
   side: top
   skip: false
   nozzle: null
   feeder: null
-  vision: null
+  vision: false
 - ref: C22
-  value: 1uF
+  value: 1nF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
-  x: 120.2
-  y: -98.699504
+  x: 55.4043
+  y: 82.17
   rotation: 180.0
   side: top
-  skip: false
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: C23
-  value: 1uF
+  value: 10pF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
-  x: 112.95
-  y: -105.713029
-  rotation: 0.0
+  x: 55.2259
+  y: 29.8893
+  rotation: 180.0
   side: top
-  skip: false
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: C24
-  value: 10nF
+  value: 10pF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
-  x: 112.9175
-  y: -107.833029
+  x: 54.9973
+  y: 22.0153
   rotation: 0.0
   side: top
-  skip: false
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: C25
   value: 100nF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
-  x: 114.2625
-  y: -94.799504
-  rotation: 180.0
+  x: 48.0383
+  y: 82.678
+  rotation: 270.0
   side: top
-  skip: false
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: C26
-  value: 1uF
+  value: 10uF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
-  x: 105.375
-  y: -96.563029
-  rotation: 180.0
+  x: 28.8568
+  y: 47.9001
+  rotation: 0.0
   side: top
-  skip: false
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: C27
-  value: DNP
+  value: 100nF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
-  x: 135.9
-  y: -95.7
+  x: 28.8783
+  y: 45.8681
   rotation: 0.0
   side: top
-  skip: false
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: C28
-  value: DNP
+  value: 10uF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
-  x: 139.725
-  y: -95.7
+  x: 38.3642
+  y: 57.7553
   rotation: 180.0
   side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: C29
+  value: 100nF
+  package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
+  x: 38.3642
+  y: 55.7233
+  rotation: 180.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: C30
+  value: 1uF
+  package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
+  x: 43.2879
+  y: 48.5097
+  rotation: 180.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: C31
+  value: 1uF
+  package: C_0805_2012Metric
+  x: 51.2091
+  y: 31.4641
+  rotation: 270.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: C32
+  value: 10nF
+  package: C_0805_2012Metric
+  x: 49.2279
+  y: 31.4641
+  rotation: 270.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: C33
+  value: 10uF
+  package: C_0805_2012Metric
+  x: 50.8789
+  y: 40.8367
+  rotation: 90.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: C34
+  value: 1uF
+  package: C_0805_2012Metric
+  x: 48.8723
+  y: 39.9223
+  rotation: 90.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: C35
+  value: 100nF
+  package: C_0805_2012Metric
+  x: 46.8149
+  y: 38.2967
+  rotation: 90.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: C36
+  value: 100nF
+  package: C_0805_2012Metric
+  x: 43.6907
+  y: 34.3597
+  rotation: 0.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: C37
+  value: 100nF
+  package: C_0805_2012Metric
+  x: 36.1977
+  y: 30.1179
+  rotation: 90.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: C38
+  value: 1uF
+  package: C_0805_2012Metric
+  x: 42.0143
+  y: 21.7867
+  rotation: 270.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: C39
+  value: 100nF
+  package: C_0805_2012Metric
+  x: 39.9061
+  y: 21.7613
+  rotation: 270.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: C40
+  value: 100nF
+  package: C_0805_2012Metric
+  x: 48.2119
+  y: 23.3615
+  rotation: 270.0
+  side: top
   skip: false
+  nozzle: null
+  feeder: null
+  vision: false
+- ref: C41
+  value: 1uF
+  package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
+  x: 35.3377
+  y: 56.7393
+  rotation: 90.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: C42
+  value: 1.5pF
+  package: C_0805_2012Metric
+  x: 51.2091
+  y: 36.1631
+  rotation: 90.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: C43
+  value: 1.5pF
+  package: C_0805_2012Metric
+  x: 57.0765
+  y: 36.1631
+  rotation: 90.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: C44
+  value: 5nF
+  package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
+  x: 15.6113
+  y: 44.9029
+  rotation: 90.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: C45
+  value: 1.5pF
+  package: C_0805_2012Metric
+  x: 59.7689
+  y: 40.2305
+  rotation: 90.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: C46
+  value: 10uF_16V
+  package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
+  x: 5.8135
+  y: 76.0124
+  rotation: 90.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: D1
+  value: 1N4148W
+  package: D_SOD-123
+  x: 9.7599
+  y: 39.0007
+  rotation: 90.0
+  side: top
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: D2
   value: 1N4148W
   package: D_SOD-123
-  x: 146.0
-  y: -92.0
-  rotation: 270.0
+  x: 9.0197
+  y: 28.3399
+  rotation: 180.0
   side: top
-  skip: false
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: D3
+  value: M1
+  package: D_SMA
+  x: 37.3407
+  y: 78.0985
+  rotation: 0.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: IC1
+  value: AZ1117H-3.3TRE1
+  package: SOT230P700X180-4N
+  x: 24.1581
+  y: 28.4415
+  rotation: 0.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: L1
+  value: 24nH
+  package: L_0805_2012Metric_Pad1.15x1.40mm_HandSolder
+  x: 50.3455
+  y: 28.7971
+  rotation: 180.0
+  side: top
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: L2
   value: 2nH
-  package: L_0805_2012Metric
-  x: 116.675
-  y: -108.935799
-  rotation: 90.0
+  package: L_0603_1608Metric
+  x: 44.7321
+  y: 37.1283
+  rotation: 270.0
   side: top
-  skip: false
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: L3
-  value: 2.2nH
+  value: 2.7nH
   package: L_0805_2012Metric
-  x: 120.238539
-  y: -100.548166
-  rotation: 180.0
+  x: 54.1301
+  y: 35.2018
+  rotation: 0.0
   side: top
-  skip: false
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: L4
+  value: 2.7nH
+  package: L_0805_2012Metric
+  x: 59.7181
+  y: 36.2901
+  rotation: 90.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: Q1
+  value: BC849
+  package: SOT-23
+  x: 37.5947
+  y: 63.7475
+  rotation: 0.0
+  side: top
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: R1
-  value: 1K2
-  package: R_0805_2012Metric
-  x: 106.5
-  y: -58.5875
-  rotation: 270.0
+  value: '100'
+  package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
+  x: 20.0805
+  y: 74.4884
+  rotation: 90.0
   side: top
-  skip: false
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: R2
+  value: 5K1
+  package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
+  x: 12.4613
+  y: 17.5781
+  rotation: 90.0
+  side: top
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: R3
-  value: 10K
-  package: R_0805_2012Metric
-  x: 105.0
-  y: -70.9125
-  rotation: 90.0
+  value: '0'
+  package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
+  x: 16.2713
+  y: 15.0381
+  rotation: 0.0
   side: top
-  skip: false
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: R4
-  value: 1K2
-  package: R_0805_2012Metric
-  x: 135.0
-  y: -58.5875
-  rotation: 270.0
+  value: '0'
+  package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
+  x: 16.2713
+  y: 13.0061
+  rotation: 0.0
   side: top
-  skip: false
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: R5
-  value: 10K
-  package: R_0805_2012Metric
-  x: 137.0
-  y: -70.9125
-  rotation: 90.0
+  value: 5K1
+  package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
+  x: 12.4613
+  y: 10.9901
+  rotation: 270.0
   side: top
-  skip: false
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: R6
+  value: 10K
+  package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
+  x: 53.1235
+  y: 62.2743
+  rotation: 0.0
+  side: top
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: R7
-  value: 10K
-  package: R_0805_2012Metric
-  x: 137.0
-  y: -86.4125
-  rotation: 90.0
+  value: '220'
+  package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
+  x: 21.5673
+  y: 46.6533
+  rotation: 0.0
   side: top
-  skip: false
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: R8
-  value: 1K2
-  package: R_0805_2012Metric
-  x: 106.550353
-  y: -74.5875
-  rotation: 270.0
+  value: 1K
+  package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
+  x: 53.1235
+  y: 64.3063
+  rotation: 180.0
   side: top
-  skip: false
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: R9
+  value: '750'
+  package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
+  x: 44.4875
+  y: 65.8518
+  rotation: 180.0
+  side: top
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: R10
   value: 10K
-  package: R_0805_2012Metric
-  x: 105.0
-  y: -85.5875
-  rotation: 90.0
+  package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
+  x: 52.8855
+  y: 59.5311
+  rotation: 0.0
   side: top
-  skip: false
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: R11
-  value: 1K2
-  package: R_0805_2012Metric
-  x: 134.5
-  y: -74.5875
+  value: 10K
+  package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
+  x: 53.3935
+  y: 41.6241
   rotation: 270.0
   side: top
-  skip: false
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: R12
+  value: 10K
+  package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
+  x: 55.5779
+  y: 41.6241
+  rotation: 270.0
+  side: top
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: R13
-  value: 10K
+  value: 1K
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
-  x: 121.15
-  y: -96.05
+  x: 52.8855
+  y: 57.4991
   rotation: 180.0
   side: top
-  skip: false
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: R14
-  value: 240 Ohm 1/4W
+  value: 10K
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
-  x: 122.05
-  y: -104.799504
-  rotation: 270.0
+  x: 53.1075
+  y: 76.2443
+  rotation: 0.0
   side: top
-  skip: false
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: R15
-  value: 10K
+  value: 1K
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
-  x: 111.45
-  y: -92.8
+  x: 53.1075
+  y: 74.2123
   rotation: 180.0
   side: top
-  skip: false
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: R16
-  value: 10K
+  value: '750'
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
-  x: 106.9
-  y: -93.1
-  rotation: 0.0
+  x: 44.493
+  y: 75.7363
+  rotation: 180.0
   side: top
-  skip: false
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: R17
-  value: '0'
-  package: R_0805_2012Metric
-  x: 136.8025
-  y: -98.5125
-  rotation: 90.0
+  value: '750'
+  package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
+  x: 44.5129
+  y: 56.2799
+  rotation: 180.0
   side: top
-  skip: false
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: R18
-  value: '0'
-  package: R_0805_2012Metric
-  x: 138.7775
-  y: -98.475
+  value: 4K7
+  package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
+  x: 32.6417
+  y: 63.6967
   rotation: 90.0
   side: top
-  skip: false
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: R19
-  value: 5K1
-  package: R_0805_2012Metric
-  x: 138.0
-  y: -105.0
-  rotation: 180.0
+  value: 10K
+  package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
+  x: 55.4043
+  y: 86.234
+  rotation: 0.0
   side: top
-  skip: false
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: R20
-  value: 5K1
-  package: R_0805_2012Metric
-  x: 143.8
-  y: -96.1
-  rotation: 90.0
+  value: 1K
+  package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
+  x: 55.4043
+  y: 84.202
+  rotation: 180.0
   side: top
-  skip: false
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: R21
-  value: '330'
-  package: R_0805_2012Metric
-  x: 134.37
-  y: -55.47
-  rotation: 180.0
+  value: 100K
+  package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
+  x: 34.5721
+  y: 63.7221
+  rotation: 90.0
   side: top
-  skip: false
+  skip: true
   nozzle: null
   feeder: null
   vision: null
-- ref: SW5
-  value: RESET
-  package: SW_Tactile_SPST_NO_Straight_CK_PTS636Sx25SMTRLFS
-  x: 129.0
-  y: -95.0
+- ref: R22
+  value: 4K7
+  package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
+  x: 30.9907
+  y: 43.7323
+  rotation: 180.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: R23
+  value: 4K7
+  package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
+  x: 31.0161
+  y: 41.6749
+  rotation: 180.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: R24
+  value: '750'
+  package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
+  x: 47.0223
+  y: 85.726
+  rotation: 180.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: R25
+  value: '165'
+  package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
+  x: 30.6859
+  y: 63.6967
+  rotation: 90.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: R26
+  value: 10K
+  package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
+  x: 20.1993
+  y: 19.8641
+  rotation: 180.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: R27
+  value: 6K8
+  package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
+  x: 23.2473
+  y: 20.8801
   rotation: 270.0
   side: top
-  skip: false
+  skip: true
   nozzle: null
   feeder: null
   vision: null
-- ref: SW6
-  value: Boot
-  package: SW_Tactile_SPST_NO_Straight_CK_PTS636Sx25SMTRLFS
-  x: 97.8
-  y: -94.0
+- ref: R28
+  value: 1K2
+  package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
+  x: 32.0321
+  y: 78.0985
+  rotation: 90.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: R29
+  value: '0'
+  package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
+  x: 42.2719
+  y: 40.5087
+  rotation: 270.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: R30
+  value: '0'
+  package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
+  x: 40.2399
+  y: 40.5087
+  rotation: 270.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: R31
+  value: '0'
+  package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
+  x: 38.1825
+  y: 40.5087
+  rotation: 270.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: R32
+  value: '0'
+  package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
+  x: 36.1505
+  y: 40.5087
+  rotation: 270.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: R33
+  value: '499'
+  package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
+  x: 48.5675
+  y: 17.5957
+  rotation: 270.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: R34
+  value: '220'
+  package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
+  x: 41.0403
+  y: 18.6497
   rotation: 180.0
   side: top
-  skip: false
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: R35
+  value: 10K
+  package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
+  x: 12.5633
+  y: 45.9189
+  rotation: 0.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: R36
+  value: 4K7
+  package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
+  x: 55.1715
+  y: 16.6305
+  rotation: 180.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: R37
+  value: 4K7
+  package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
+  x: 55.1461
+  y: 18.7641
+  rotation: 180.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: RV1
+  value: '600'
+  package: PVG3G501C01R00
+  x: 24.8345
+  y: 75.3864
+  rotation: 90.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: RV2
+  value: 820k
+  package: PVG3G501C01R00
+  x: 10.4575
+  y: 74.9964
+  rotation: 90.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: SW1
+  value: BOOT
+  package: SW_Tactile_SPST_NO_Straight_CK_PTS636Sx25SMTRLFS
+  x: 52.6315
+  y: 49.2187
+  rotation: 270.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: SW2
+  value: RESET
+  package: SW_Tactile_SPST_NO_Straight_CK_PTS636Sx25SMTRLFS
+  x: 57.6861
+  y: 49.1425
+  rotation: 270.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: T1
+  value: SM-LP-5001_Bourns_600:600_Ohm
+  package: SMLP5001
+  x: 22.1975
+  y: 61.0769
+  rotation: 90.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: T2
+  value: SM-LP-5001_Bourns_600:600_Ohm
+  package: SMLP5001
+  x: 8.3535
+  y: 61.1629
+  rotation: 90.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: U1
+  value: AZ1117H-5.0TRE1
+  package: SOT230P700X180-4N
+  x: 24.2113
+  y: 37.8981
+  rotation: 0.0
+  side: top
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: U2
-  value: AMS1117-3.3
-  package: SOT-223-3_TabPin2
-  x: 138.0
-  y: -49.85
-  rotation: 270.0
+  value: 4N25
+  package: DIP-6_W7.62mm_SMDSocket_SmallPads
+  x: 37.0613
+  y: 70.9103
+  rotation: 90.0
   side: top
-  skip: false
+  skip: true
   nozzle: null
   feeder: null
   vision: null
 - ref: U3
-  value: ESP32-C3FH4X
-  package: QFN-32-1EP_5x5mm_P0.5mm_EP3.45x3.45mm
-  x: 110.925
-  y: -99.903029
-  rotation: 180.0
+  value: '~'
+  package: TAC5112IRGER
+  x: 36.8073
+  y: 49.2949
+  rotation: 0.0
+  side: top
+  skip: true
+  nozzle: null
+  feeder: null
+  vision: null
+- ref: U4
+  value: ESP32-S3FN8
+  package: QFN-56-1EP_7x7mm_P0.4mm_EP4x4mm
+  x: 42.5355
+  y: 27.7877
+  rotation: 270.0
   side: top
   skip: false
   nozzle: null
@@ -529,26 +1134,27 @@ parts:
   vision: null
 - ref: Y1
   value: 40MHz
-  package: OSC_XRCGB40M000F1S1BR0
-  x: 109.4125
-  y: -106.463029
-  rotation: 90.0
+  package: ABM810000MHZ12D2W
+  x: 55.1195
+  y: 26.0285
+  rotation: 270.0
   side: top
-  skip: false
+  skip: true
   nozzle: null
   feeder: null
   vision: null
-status: {}
+status:
+  0:U4: placed
 fiducials: []
-fiducial_mode: board
+fiducial_mode: 'off'
 fiducial_diameter: 1.0
 fit: null
 board_fits: {}
 references:
 - ref: null
-  x: 0.0
-  y: 0.0
+  x: 4.041
+  y: 4.108
 - ref: null
-  x: 32.0
-  y: 27.0
+  x: 62.817
+  y: 86.049
 reference_board: 0

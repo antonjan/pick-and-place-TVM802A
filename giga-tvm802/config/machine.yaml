@@ -4,7 +4,7 @@
 controller:
   host: 192.168.0.8
   port: 701
-  poll_interval_idle: 0.2
+  poll_interval_idle: 0.05
   poll_interval_moving: 0.03
 
 steps:
@@ -67,3 +67,6 @@ server:
 #   size_tolerance: 0.3     # measured body vs expected body, relative
 #   max_offset_mm: 1.0      # reject a part further than this from the nozzle axis (mm)
 #   max_angle_deg: 15.0     # reject a part turned more than this (deg)
+head:
+  pick_depth: 7.5
+  place_depth: 7.5

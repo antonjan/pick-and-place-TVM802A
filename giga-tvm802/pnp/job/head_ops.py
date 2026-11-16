@@ -163,6 +163,25 @@ class HeadOps:
             self.busy = "placing"
             await self._place(nozzle, W, rotation, depth)
 
+    async def reset_nozzles(self, nozzles: tuple[int, ...] = (1, 2)) -> None:
+        """Forget what the nozzles hold: vacuum off, nozzles up, holding cleared.
+
+        For a pick that went wrong (nothing or a crooked part on the nozzle): the head
+        otherwise refuses every new pick until a place or discard. A part still on the
+        nozzle drops where the head is when the vacuum goes off. Doesn't move X/Y.
+        """
+        async with self._exclusive("resetting nozzles"):
+            for n in nozzles:
+                with contextlib.suppress(MachineError):
+                    await self.machine.set_output(f"vacuum{n}", False)
+            with contextlib.suppress(MachineError):
+                await self.machine.nozzles_up()
+            for n in nozzles:
+                self.holding[n] = None
+                self._tape_rotation.pop(n, None)
+                self._correction.pop(n, None)
+            log.info("nozzle state reset: %s", ", ".join(f"N{n}" for n in nozzles))
+
     async def inspect(self, nozzle: int) -> Inspection:
         """Measure whatever is on the nozzle from the up camera. Never rejects or discards."""
         async with self._exclusive("inspecting"):
@@ -179,31 +198,63 @@ class HeadOps:
     # ------------------------------------------------------------------ operations (lock held)
 
     async def _feed(self, feeder: Feeder) -> None:
+        await self.feed_move(feeder)
+        await self.feed_drag(feeder)
+        await self.feed_up(feeder)
+
+    # Single stages of feed / pick / place. The step-by-step job (JobRunner.step) runs
+    # them one per press; the full operations above call them in the same order. The
+    # head lock must be held by the caller.
+
+    @staticmethod
+    def _check_feed(feeder: Feeder) -> None:
         if feeder.kind != "drag":
             raise FeederError(f"feeder {feeder.id} is not a drag feeder")
         if feeder.prick is None:
             raise FeederError(f"feeder {feeder.id} has no prick position")
-        dx, dy = feeder.drag_vector()
+
+    async def feed_move(self, feeder: Feeder) -> None:
+        """Feed stage 1: put the needle over the lane's sprocket hole (needle up)."""
+        self._check_feed(feeder)
         await self._move_tool("prick", feeder.prick)
-        on = False
+
+    async def feed_drag(self, feeder: Feeder) -> None:
+        """Feed stage 2: needle down, then drag the tape one pitch. The needle stays down."""
+        self._check_feed(feeder)
+        dx, dy = feeder.drag_vector()
         try:
-            on = True
             await self.machine.set_output("prick", True)
             await asyncio.sleep(self.cfg.prick_settle)
             pos = self.machine.position()
             with self.machine.needle_moves_allowed():  # the drag is the one move allowed with the needle down
                 await self.machine.move_to(x=pos["x"] + dx, y=pos["y"] + dy)
+        except BaseException:
+            with contextlib.suppress(MachineError):
+                await self.machine.set_output("prick", False)
+            raise
+
+    async def feed_up(self, feeder: Feeder) -> None:
+        """Feed stage 3: needle up. The lane now has a part in the pick pocket."""
+        try:
             await self.machine.set_output("prick", False)
-            on = False
             await asyncio.sleep(self.cfg.prick_settle)
-        finally:
-            if on:
-                with contextlib.suppress(MachineError):
-                    await self.machine.set_output("prick", False)
+        except BaseException:
+            with contextlib.suppress(MachineError):
+                await self.machine.set_output("prick", False)
+            raise
         feeder.after_feed()
         self.feeders.save()
 
     async def _pick(self, nozzle: int, feeder: Feeder, *, vision: bool = True, body=None) -> None:
+        self.check_pick(nozzle, feeder)
+        if feeder.kind == "drag" and feeder.needs_feed:
+            await self._feed(feeder)
+        await self.pick_move(nozzle, feeder)
+        await self.pick_down(nozzle, feeder)
+        await self.pick_up(nozzle, feeder)
+        await self._inspect_pick(nozzle, feeder, vision=vision, body=body)
+
+    def check_pick(self, nozzle: int, feeder: Feeder) -> None:
         if self.holding.get(nozzle):
             raise HeadConflict(f"nozzle {nozzle} already holds a part from {self.holding[nozzle]}: "
                                "place or discard it first")
@@ -211,28 +262,45 @@ class HeadOps:
             raise FeederError(f"feeder {feeder.id} is disabled")
         if feeder.remaining() == 0:
             raise FeederError(f"feeder {feeder.id} is empty")
-        if feeder.kind == "drag" and feeder.needs_feed:
-            await self._feed(feeder)
 
+    async def pick_move(self, nozzle: int, feeder: Feeder) -> None:
+        """Pick stage 1: pump on, nozzle at 0°, nozzle over the pick pocket (still up)."""
         await self.machine.set_output("pump", True)
         await self.machine.rotate(nozzle, 0.0)
         await self._move_tool(nozzle, feeder.pick_location())
+
+    def _pick_interrupted(self, nozzle: int, feeder: Feeder) -> None:
+        # Vacuum stays on until a place or discard (user request 2026-11-13): a part
+        # may already be on the nozzle, so don't drop it here. The caller lifts the
+        # nozzle; mark it as holding, so the next step must be Place or Discard.
+        self.holding[nozzle] = feeder.id
+        self._tape_rotation[nozzle] = feeder.rotation
+
+    async def pick_down(self, nozzle: int, feeder: Feeder) -> None:
+        """Pick stage 2: vacuum on, nozzle down onto the part (it stays down)."""
         await self.machine.set_output(f"vacuum{nozzle}", True)
         try:
             await self.machine.nozzle_down(nozzle, feeder.pick_depth)
             await asyncio.sleep(self.cfg.pick_dwell)
-            await self.machine.nozzles_up()
-            await asyncio.sleep(self.cfg.vacuum_settle)
         except EStopped:
             raise  # E-stop already switched the vacuum off: nothing is held
         except BaseException:
-            # Vacuum stays on until a place or discard (user request 2026-11-13): a part
-            # may already be on the nozzle, so don't drop it here. Lift clear and mark
-            # the nozzle as holding, so the next step must be Place or Discard.
             with contextlib.suppress(MachineError):
                 await self.machine.nozzles_up()
-            self.holding[nozzle] = feeder.id
-            self._tape_rotation[nozzle] = feeder.rotation
+            self._pick_interrupted(nozzle, feeder)
+            raise
+
+    async def pick_up(self, nozzle: int, feeder: Feeder) -> None:
+        """Pick stage 3: nozzle up with the part; the part now counts as held."""
+        try:
+            await self.machine.nozzles_up()
+            await asyncio.sleep(self.cfg.vacuum_settle)
+        except EStopped:
+            raise
+        except BaseException:
+            with contextlib.suppress(MachineError):
+                await self.machine.nozzles_up()
+            self._pick_interrupted(nozzle, feeder)
             raise
         if self.cfg.check_vacuum and not await self._wait_for_part(nozzle):
             # Only when the sensor check is switched on (head.check_vacuum): nothing
@@ -246,9 +314,18 @@ class HeadOps:
         self.holding[nozzle] = feeder.id
         self._tape_rotation[nozzle] = feeder.rotation
         self._correction.pop(nozzle, None)
+
+    async def inspect_pick(self, nozzle: int, feeder: Feeder, *, vision: bool, body) -> None:
+        """Bottom vision for the held part (PickError after discarding a rejected part)."""
         await self._inspect_pick(nozzle, feeder, vision=vision, body=body)
 
     async def _place(self, nozzle: int, W, rotation: float, depth: float | None) -> None:
+        await self.place_move(nozzle, W, rotation)
+        await self.place_release(nozzle, depth)
+
+    async def place_move(self, nozzle: int, W, rotation: float) -> None:
+        """Place stage 1: turn the part and move it over its place (nozzle up),
+        with the bottom-vision correction when the part was measured."""
         tape = self._tape_rotation.get(nozzle, 0.0)
         correction = self._correction.get(nozzle)
         if correction is None:
@@ -263,6 +340,9 @@ class HeadOps:
             c, s = math.cos(phi), math.sin(phi)
             # The part centre is at tip + rot(phi) @ p, so put the tip where that lands on W.
             await self._move_tool(nozzle, (W[0] - (c * px - s * py), W[1] - (s * px + c * py)))
+
+    async def place_release(self, nozzle: int, depth: float | None) -> None:
+        """Place stage 2: nozzle down, release (vacuum off, blow), nozzle up."""
         released = False
         try:
             await self.machine.nozzle_down(nozzle, self.cfg.place_depth if depth is None else depth)

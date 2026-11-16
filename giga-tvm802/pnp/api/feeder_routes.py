@@ -64,6 +64,10 @@ class DiscardReq(BaseModel):
     nozzle: int
 
 
+class ResetReq(BaseModel):
+    nozzle: int | None = None  # None = both nozzles
+
+
 class InspectReq(BaseModel):
     nozzle: int
 
@@ -285,6 +289,16 @@ def add_feeder_routes(app: FastAPI, machine, feeders_path: Path) -> None:
         with _mapped():
             reach(req.nozzle, target)
             await head.place(req.nozzle, target, req.rotation, req.depth)
+        return {"holding": holding()}
+
+    @app.post("/api/head/reset")
+    async def reset_nozzles(req: ResetReq):
+        """Clear the nozzles' 'holding a part' state (vacuum off, nozzles up)."""
+        if req.nozzle is not None:
+            nozzle_no(req.nozzle)
+        idle()
+        with _mapped():
+            await head.reset_nozzles((req.nozzle,) if req.nozzle else (1, 2))
         return {"holding": holding()}
 
     @app.post("/api/head/discard")

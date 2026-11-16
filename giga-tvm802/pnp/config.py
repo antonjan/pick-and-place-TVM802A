@@ -18,7 +18,7 @@ import yaml
 class ControllerConfig:
     host: str = "192.168.0.8"
     port: int = 701
-    poll_interval_idle: float = 0.2  # s between state requests when idle
+    poll_interval_idle: float = 0.05  # s between state requests when idle (fast enough to catch a panel key tap)
     poll_interval_moving: float = 0.03  # s between state requests while moving
     reconnect_delay: float = 2.0
 
