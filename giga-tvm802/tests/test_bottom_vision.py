@@ -416,3 +416,53 @@ def test_part_outline_maps_back_onto_the_part_in_pixels():
     px = mm_to_px(corners, A, 640, 480)
     centre = np.mean(px, axis=0)
     assert np.allclose(centre, np.array([320.0, 240.0]) + A @ np.array(view.offset))
+
+
+def test_step_mode_stops_over_the_up_camera_then_aligns_on_the_next_press(tmp_path):
+    """Step mode with vision: 'check the part' stops over the up camera with the LEDs on;
+    the next press aligns the part and moves it to its place; the part lands on target."""
+    from pnp.tvm import protocol as p
+
+    async def press(env):
+        await env.runner.step()
+        await until(lambda: env.runner._stage_running is None, 60)
+
+    async def body():
+        async with rig(tmp_path) as env:
+            env.feeders.upsert(strip_s1())
+            env.jobs.save(Job(name="test", parts=[JobPart("R2", "10k", "R_0805_2012Metric", 8.0, 4.0, 90.0)],
+                              boards=grid(1, 1, 50.0, 0.0), origin=(150.0, 150.0)))
+            item = [i for i in plan(env.jobs.load(), env.feeders.all(), env.rules) if i.status == "pending"][0]
+            for _ in range(3):  # over the pocket, down, up
+                await press(env)
+            assert env.runner.status()["step"]["next"] == "check the part on the up camera"
+            await press(env)  # check the part
+            up = env.head._up_xy(item.nozzle)
+            pos = env.machine.position()
+            assert near((pos["x"], pos["y"]), up)  # stopped over the up camera
+            assert env.head.last_inspection[item.nozzle].result == "ok"
+            assert env.sim.machine.outputs & p.Output.LEDS  # LEDs left on to see the part
+            st = env.runner.status()["step"]
+            assert st["next"] == "align the part and move it to its place" and (st["index"], st["count"]) == (5, 6)
+            await press(env)  # align and move
+            assert not env.sim.machine.outputs & p.Output.LEDS
+            await press(env)  # place
+            placed = env.physics.placed[-1]
+            assert near(placed["centre"], (item.x, item.y)), (placed["centre"], item.x, item.y)
+            assert abs(mod180_diff(placed["angle"], item.rotation)) <= ANGLE_TOL
+            assert env.runner.state == "done"
+    run(body())
+
+
+def test_step_mode_without_vision_keeps_the_single_move_stage(tmp_path):
+    async def body():
+        async with rig(tmp_path, vision=False) as env:
+            env.feeders.upsert(strip_s1())
+            env.jobs.save(Job(name="test", parts=[JobPart("R1", "10k", "R_0805_2012Metric", 5.0, 4.0, 0.0)],
+                              boards=grid(1, 1, 50.0, 0.0), origin=(150.0, 150.0)))
+            await env.runner.step()
+            await until(lambda: env.runner._stage_running is None, 60)
+            assert env.runner._stages == ["pick_move", "pick_down", "pick_up", "place_move", "place"]
+            env.runner.stop()
+            await until(lambda: env.runner.state == "idle", 10)
+    run(body())

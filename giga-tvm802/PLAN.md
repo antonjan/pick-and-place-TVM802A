@@ -457,7 +457,8 @@ Built by Haiku agents against [docs/phase6-design.md](docs/phase6-design.md), th
 - **Centre on mark for reference points** (`POST /api/calibrate/down/centre` with `mark_mm` and `method`): the Job tab uses method "auto" = circle edge first (`find_circle`: CLAHE + Hough, refined by a least-squares fit to the edge pixels, ~0.5 px repeatable), then the threshold blob. Board holes are dark on dark solder mask with only a faint edge ring, so the blob search couldn't see them and went to nearby "USB" text. Candidates are chosen by distance to their EDGE, not their centre. Real frames are kept as regression tests (`tests/data/cutout_usb`).
 - **Alignment on the Voip board:** corners captured by eye were 0.5 mm off; the four 3.25 mm corner holes (file X 4.041/62.817, Y 4.108/86.049) with Centre on mark put Go to on the parts. The two-point distance came out 0.34 % short over 100 mm: if far parts drift, check X/Y steps per mm.
 - **Detection overlay:** `GET /api/vision/detect/{down|up}` returns the latest frame's detection as shapes in camera pixels (down: mark rings + found mark; up: search radius + measured part rectangle). The camera views have a Detect switch that draws them as an SVG overlay (read-only, no moves or LEDs).
-- **Tests:** 516.
+- **Step mode vision stop:** for a part that bottom vision checks (`HeadOps.will_inspect`), the "move to place" stage is split into `inspect` (measure over the up camera, stay there, up LEDs left on) and `align_move` (LEDs off, corrected turn and move). Parts without vision keep the single `place_move`. Checked on the machine.
+- **Tests:** 518.
 
 ## 6. First concrete steps (original)
 

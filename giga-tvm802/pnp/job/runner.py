@@ -28,6 +28,9 @@ ACTIVE = ("running", "pausing", "stopping", "stepping")
 # drag lane whose pick pocket is empty.
 FEED_STAGES = ("feed_move", "feed_down", "feed_up")
 PICK_STAGES = ("pick_move", "pick_down", "pick_up", "place_move", "place")
+# With bottom vision the move to the place is split: stop over the up camera with the
+# result shown (user request 2026-11-16), then align and move on the next press.
+VISION_STAGES = ("pick_move", "pick_down", "pick_up", "inspect", "align_move", "place")
 STAGE_LABELS = {
     "feed_move": "move the needle over the lane",
     "feed_down": "needle down and feed the lane",
@@ -36,6 +39,8 @@ STAGE_LABELS = {
     "pick_down": "nozzle down to pick the part",
     "pick_up": "nozzle up with the part",
     "place_move": "move the part to its place",
+    "inspect": "check the part on the up camera",
+    "align_move": "align the part and move it to its place",
     "place": "place the part",
 }
 
@@ -64,6 +69,7 @@ class JobRunner:
         self._stage_i = 0  # index of the next stage to run
         self._item: PlanItem | None = None
         self._stage_running: str | None = None
+        self._step_leds = False  # the up LEDs were left on by the "inspect" stage
 
     # ------------------------------------------------------------------ queries
 
@@ -264,7 +270,8 @@ class JobRunner:
         feeder = self.feeders.get(item.feeder or "")
         self.head.check_pick(item.nozzle, feeder)
         feed = feeder.kind == "drag" and feeder.needs_feed
-        self._stages = list((FEED_STAGES if feed else ()) + PICK_STAGES)
+        pick = VISION_STAGES if self.head.will_inspect(item.nozzle, item.vision) else PICK_STAGES
+        self._stages = list((FEED_STAGES if feed else ()) + pick)
         self._stage_i = 0
         self._item = item
         self.current = item.key
@@ -290,8 +297,24 @@ class JobRunner:
             elif stage == "place_move":
                 await h.inspect_pick(n, feeder, vision=item.vision, body=item.body)
                 await h.place_move(n, (item.x, item.y), item.rotation)
+            elif stage == "inspect":
+                # Measure over the up camera and stay there; the up LEDs stay on so the part
+                # (and the Detect overlay) can be seen until the next press.
+                await h.inspect_pick(n, feeder, vision=item.vision, body=item.body)
+                if h.vision_cfg.leds:
+                    await self.machine.set_output("leds", True)
+                    self._step_leds = True
+            elif stage == "align_move":
+                await self._step_leds_off()
+                await h.place_move(n, (item.x, item.y), item.rotation)
             elif stage == "place":
                 await h.place_release(n, item.place_depth)
+
+    async def _step_leds_off(self) -> None:
+        if self._step_leds:
+            self._step_leds = False
+            with contextlib.suppress(MachineError):
+                await self.machine.set_output("leds", False)
 
     async def _end_stepping(self) -> None:
         """Leave step mode safely: needle up, nozzles up, pump off. The pump going off
@@ -304,6 +327,7 @@ class JobRunner:
         with contextlib.suppress(MachineError):
             await self.machine.nozzles_up()
         await self._pump_off()
+        await self._step_leds_off()
         note = None
         if item is not None and "pick_down" in done and "place" not in done:
             with contextlib.suppress(MachineError):

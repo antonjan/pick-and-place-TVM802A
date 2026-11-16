@@ -605,10 +605,17 @@ Use step mode to look at each stage of a placement, for example for a new feeder
 | 4 | Moves the nozzle above the part |
 | 5 | Lowers the nozzle onto the part (vacuum on) |
 | 6 | Lifts the nozzle with the part |
-| 7 | Moves the part to its position. If vision is on, it inspects the part on the up camera first. |
+| 7 | Moves the part to its position (vision off) |
 | 8 | Places the part |
 
-After stage 8, the next press starts the next part. For a strip feeder, or a lane that does not have to feed, stages 1 to 3 are not done.
+If vision checks the part, stage 7 is two stages:
+
+| Stage | Action |
+|---|---|
+| 7a | Moves the part above the up camera, measures it and stops there. The up LEDs stay on. The **Last part** line on the Run card shows the result. Turn on **Detect** on the up camera view to see the measured outline. |
+| 7b | Turns the part to correct the measured angle and moves it to its position, corrected for the measured offset |
+
+After the last stage, the next press starts the next part. For a strip feeder, or a lane that does not have to feed, stages 1 to 3 are not done.
 
 - A press while a stage moves is not accepted.
 - **Stop** (or Start/Stop on the front panel) ends step mode. The application lifts the needle and the nozzles and turns the pump off. If a nozzle holds a part, the part falls where the head is. The application tells you to remove it.
@@ -738,7 +745,7 @@ To run all tests, use this command:
 .venv-linux/bin/python -m pytest -q
 ```
 
-The tests use the simulator and some images from the real cameras. They do not need a machine or cameras. There are 516 tests. A full run takes approximately 9 minutes.
+The tests use the simulator and some images from the real cameras. They do not need a machine or cameras. There are 518 tests. A full run takes approximately 9 minutes.
 
 > **NOTE:** On Windows, the test `test_camera.py::test_device_holders_finds_other_process` fails. This test is for Linux only.
 
@@ -795,7 +802,7 @@ Do these tasks before the first job on the machine:
 Changes from the work on the machine, 16 November 2026:
 
 - **Front panel keys:** the jog keys, DotMove/ConMove, Step, Start/Stop and Pause/Cont on the machine work (see [7.11](#711-use-the-front-panel-keys)). The status poll is now every 50 ms, so a short press is not missed.
-- **Step mode:** the job runs one stage per press of **Step** (see [7.12](#712-run-a-job-one-stage-at-a-time)).
+- **Step mode:** the job runs one stage per press of **Step** (see [7.12](#712-run-a-job-one-stage-at-a-time)). When vision checks a part, the head stops above the up camera with the result shown, and the next press aligns the part and moves it to its position.
 - **Parts table:** switch parts on or off, remove parts, and change the X, Y and rotation of a part. **Place at** shows the machine position and the nozzle angle.
 - **Reset nozzles:** clears what the nozzles hold after a bad pick.
 - **Rotation offset:** for each feeder and for all lanes of a stack (see [7.13](#713-set-the-rotation-of-a-feeder)).

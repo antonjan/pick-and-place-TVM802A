@@ -408,6 +408,10 @@ class HeadOps:
         self.last_inspection[nozzle] = insp
         return insp
 
+    def will_inspect(self, nozzle: int, vision: bool) -> bool:
+        """True when a pick with this vision setting is checked on the up camera."""
+        return self._skip_reason(nozzle, vision) is None
+
     def _skip_reason(self, nozzle: int, vision: bool) -> str | None:
         """Why the pick is not inspected, or None when it should be."""
         if not vision:

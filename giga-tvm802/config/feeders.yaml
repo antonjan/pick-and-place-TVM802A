@@ -9,7 +9,7 @@ feeders:
   - 1.0
   - 0.0
   pitch: 4.0
-  count: 11
+  count: 24
   capacity: null
   rotation: 90.0
   pick_depth: 8.0
@@ -32,7 +32,7 @@ feeders:
   - 1.0
   - 0.0
   pitch: 16.0
-  count: 3
+  count: 6
   capacity: null
   rotation: 0.0
   pick_depth: 7.5
