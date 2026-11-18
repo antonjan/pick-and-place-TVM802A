@@ -265,3 +265,26 @@ def test_locate_fiducial_raises_when_fiducial_beyond_search_radius():
     camera = FiducialCamera(machine, A_SIM, FID_WORLD)
     with pytest.raises(FiducialError):
         asyncio.run(locate_fiducial(machine, camera, A_SIM, diameter_mm=1.0, search_mm=3.0))
+
+
+def test_fit_rigid_with_scale_recovers_scale_and_origin():
+    # measured = 1.002 * rot @ p + t: the scaled transform fits exactly
+    fit = fit_rigid(NOMINAL_3, _measure(NOMINAL_3, scale=1.002), with_scale=True)
+    assert fit.scale == pytest.approx(1.002, abs=1e-9)
+    assert fit.rotation == pytest.approx(ROT, abs=1e-9)
+    assert fit.origin[0] == pytest.approx(T[0], abs=1e-9)
+    assert fit.origin[1] == pytest.approx(T[1], abs=1e-9)
+    assert fit.rms < 1e-9 and fit.max_error < 1e-9
+
+
+def test_fit_rigid_default_is_rigid_and_leaves_scale_error_in_residuals():
+    fit = fit_rigid(NOMINAL_3, _measure(NOMINAL_3, scale=1.002))
+    assert fit.scale == pytest.approx(1.002, abs=1e-4)
+    assert fit.rms > 0.01  # the 0.2 % scale error shows as residual; the rigid fit does not absorb it
+    assert fit.origin != pytest.approx(tuple(T), abs=1e-3)
+
+
+def test_fit_rigid_with_scale_one_point_has_scale_one():
+    fit = fit_rigid([(10.0, 5.0)], _measure([(10.0, 5.0)]), rotation_hint=ROT, with_scale=True)
+    assert fit.scale == 1.0
+    assert fit.rms < 1e-9

@@ -137,6 +137,7 @@ def create_app(machine: Machine, *, cameras: CameraManager | None = None, calibr
             if req.mode not in ("dot", "con"):
                 raise HTTPException(400, "mode must be dot or con")
             machine.panel["mode"] = req.mode
+            await machine.set_panel_leds(req.mode)  # the front panel's speed lights show the mode
         if req.step is not None:
             if not req.step > 0:
                 raise HTTPException(400, "step must be greater than 0")

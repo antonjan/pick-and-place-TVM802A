@@ -306,3 +306,92 @@ def test_job_waits_on_stuck_needle_and_continues_after_clear(tmp_path):
             status = env.runner.status()
             assert status["placed"] == 3 and status["failed"] == 0
     run(body())
+
+
+# ---------------------------------------------------------------- dual pick
+
+def pick_release_order(sim):
+    """(kind, nozzle) of every pick and release, in the order the simulator saw them."""
+    return [(e[0], e[1]) for e in sim.machine.events if e[0] in ("pick", "release")]
+
+
+def test_dual_pick_picks_both_nozzles_before_placing(tmp_path):
+    async def body():
+        async with rig(tmp_path, head_cfg=dataclasses.replace(FAST, dual_pick=True)) as env:
+            add_feeders(env.feeders)
+            env.jobs.save(job_of(STANDARD_PARTS))
+            expected = [i for i in plan(env.jobs.load(), env.feeders.all(), env.rules) if i.status == "pending"]
+
+            await env.runner.start()
+            await until(lambda: env.runner.state == "done")
+            status = env.runner.status()
+            assert (status["placed"], status["failed"], status["total"]) == (6, 0, 6)
+
+            releases = events(env.sim, "release")
+            assert len(releases) == 6
+            for item, rel in zip(expected, releases):
+                assert rel[1] == item.nozzle
+                assert_at(tool_xy(rel[2:4], SIM_NOZZLE_OFFSETS[item.nozzle]), (item.x, item.y))
+
+            # The first pair: U1 (nozzle 1) and R1 (nozzle 2) are both picked before the first release.
+            order = pick_release_order(env.sim)
+            first_release = next(i for i, e in enumerate(order) if e[0] == "release")
+            assert ("pick", 1) in order[:first_release] and ("pick", 2) in order[:first_release]
+    run(body())
+
+
+def test_without_dual_pick_each_part_is_picked_then_placed(tmp_path):
+    async def body():
+        async with rig(tmp_path) as env:
+            add_feeders(env.feeders)
+            env.jobs.save(job_of(STANDARD_PARTS))
+            await env.runner.start()
+            await until(lambda: env.runner.state == "done")
+            assert env.runner.status()["placed"] == 6
+
+            # One part at a time: pick, release, pick, release...
+            order = [e[0] for e in pick_release_order(env.sim)]
+            assert order[:3] == ["pick", "release", "pick"]
+    run(body())
+
+
+def test_dual_pick_with_one_nozzle_only_runs_single_picks(tmp_path):
+    async def body():
+        async with rig(tmp_path, head_cfg=dataclasses.replace(FAST, dual_pick=True)) as env:
+            add_feeders(env.feeders)
+            parts = [JobPart("U1", "NE555", "SOIC-8_3.9x4.9mm_P1.27mm", 20.0, 4.0, 0.0, nozzle=1),
+                     JobPart("U2", "NE555", "SOIC-8_3.9x4.9mm_P1.27mm", 30.0, 4.0, 0.0, nozzle=1)]
+            env.jobs.save(job_of(parts))  # two boards: four parts, all on nozzle 1
+            await env.runner.start()
+            await until(lambda: env.runner.state == "done")
+            assert env.runner.status()["placed"] == 4
+
+            order = pick_release_order(env.sim)
+            assert order == [("pick", 1), ("release", 1)] * 4
+    run(body())
+
+
+def test_dual_pick_failed_partner_places_the_other_and_pauses(tmp_path):
+    async def body():
+        async with rig(tmp_path, head_cfg=dataclasses.replace(FAST, dual_pick=True, check_vacuum=True)) as env:
+            add_feeders(env.feeders)
+            env.jobs.save(job_of(STANDARD_PARTS, boards=grid(1, 1, 0, 0)))
+
+            # Picks from the drag lane D1 with nozzle 2 always miss; everything else picks.
+            real_pick_down = env.head.pick_down
+
+            async def pick_down(nozzle, feeder):
+                env.sim.machine.cfg.pick_success = not (nozzle == 2 and feeder.id == "D1")
+                await real_pick_down(nozzle, feeder)
+            env.head.pick_down = pick_down
+
+            await env.runner.start()
+            await until(lambda: env.runner.state == "paused")
+            status = env.runner.status()
+            assert (status["placed"], status["failed"], status["pending"]) == (1, 1, 1)
+            assert "Couldn't pick C1 from D1 after 3 tries" in status["message"]
+            assert env.jobs.load().status == {"0:U1": "placed", "0:C1": "failed"}
+            releases = events(env.sim, "release")
+            assert [r[1] for r in releases] == [1]
+            assert env.head.holding == {1: None, 2: None}
+    run(body())

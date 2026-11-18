@@ -29,6 +29,7 @@ class PackageRule:
     body: tuple[float, float] | None = None   # (length, width) mm of the part as the up camera sees it
                                               # (body + leads), None = don't check the size
     vision: bool = True                       # inspect on the up camera before placing
+    height: float | None = None               # part height (mm) for this package; None = head.part_height
 
 
 DEFAULT_RULES: list[PackageRule] = [
@@ -61,6 +62,10 @@ def _check_rule(rule: PackageRule) -> None:
     if depth is not None:
         if isinstance(depth, bool) or not isinstance(depth, (int, float)) or not math.isfinite(depth) or depth <= 0:
             raise ValueError(f"rule {rule.pattern!r}: place_depth must be > 0 or null, got {depth!r}")
+    height = rule.height
+    if height is not None:
+        if isinstance(height, bool) or not isinstance(height, (int, float)) or not math.isfinite(height) or height < 0:
+            raise ValueError(f"rule {rule.pattern!r}: height must be >= 0 or null, got {height!r}")
     if not isinstance(rule.note, str):
         raise ValueError(f"rule {rule.pattern!r}: note must be a string")
     rule.body = _check_body(rule.body, f"rule {rule.pattern!r}: body")
@@ -93,6 +98,8 @@ def _rule_from_dict(entry: Any) -> PackageRule:
     rule = PackageRule(**entry)
     if rule.place_depth is not None:
         rule.place_depth = float(rule.place_depth)
+    if rule.height is not None and not isinstance(rule.height, bool):
+        rule.height = float(rule.height)
     _check_rule(rule)
     return rule
 
@@ -136,6 +143,11 @@ class PackageRules:
         """Place depth from the matching rule, or None to use machine.yaml head.place_depth."""
         rule = self.match(package)
         return rule.place_depth if rule is not None else None
+
+    def height_for(self, package: str) -> float | None:
+        """Part height (mm) from the matching rule, or None (the part or head.part_height gives it)."""
+        rule = self.match(package)
+        return rule.height if rule is not None else None
 
     def body_for(self, package: str) -> tuple[float, float] | None:
         """(length, width) mm from the matching rule, or None (no size check)."""

@@ -30,6 +30,9 @@ class FeederIn(BaseModel):
     rotation: float = 0.0
     pick_depth: float = 3.0
     prick: list[float] | None = None
+    tray_end: list[float] | None = None  # tray: the last part (teach it with teach/tray-end)
+    tray_cols: int = 1
+    tray_rows: int = 1
     needs_feed: bool = True
     enabled: bool = True
     value: str = ""
@@ -96,6 +99,11 @@ def feeder_json(f: Feeder) -> dict:
     out["pick"] = list(f.pick)
     out["direction"] = list(f.direction)
     out["prick"] = list(f.prick) if f.prick is not None else None
+    out["tray_end"] = list(f.tray_end) if f.tray_end is not None else None
+    if f.kind == "tray":
+        # The grid size for the form and the table: a tray's capacity is its cell count.
+        out["tray_size"] = [f.tray_cols, f.tray_rows]
+        out["capacity"] = f.tray_capacity()
     out["pick_location"] = list(f.pick_location())
     out["remaining"] = f.remaining()
     return out
@@ -199,7 +207,7 @@ def add_feeder_routes(app: FastAPI, machine, feeders_path: Path) -> None:
         idle()
         x, y = head_xy()
         changes = {"pick": (x, y)}
-        if feeder.kind == "strip":
+        if feeder.kind in ("strip", "tray"):
             changes["count"] = 0
         updated = dataclasses.replace(feeder, **changes)
         with _mapped():
@@ -217,6 +225,19 @@ def add_feeder_routes(app: FastAPI, machine, feeders_path: Path) -> None:
             store.upsert(updated)
         return feeder_json(updated)
 
+    @app.post("/api/feeders/{id}/teach/tray-end")
+    async def teach_tray_end(id: str):
+        feeder = get_feeder(id)
+        if feeder.kind != "tray":
+            raise HTTPException(409, f"feeder {id} is not a tray feeder")
+        need_homed()
+        idle()
+        x, y = head_xy()
+        updated = dataclasses.replace(feeder, tray_end=(x, y))
+        with _mapped():
+            store.upsert(updated)
+        return feeder_json(updated)
+
     @app.post("/api/feeders/{id}/goto")
     async def goto(id: str):
         feeder = get_feeder(id)
@@ -224,6 +245,17 @@ def add_feeder_routes(app: FastAPI, machine, feeders_path: Path) -> None:
         x, y = feeder.pick_location()
         with _mapped():
             pos = await machine.move_to(x=x, y=y)
+        return {"position": pos}
+
+    @app.post("/api/feeders/{id}/goto-prick")
+    async def goto_prick(id: str):
+        """Down camera over the feeder's needle (prick) point, to check where the needle goes."""
+        feeder = get_feeder(id)
+        idle()
+        if feeder.prick is None:
+            raise HTTPException(409, f"feeder {id} has no prick position")
+        with _mapped():
+            pos = await machine.move_to(x=float(feeder.prick[0]), y=float(feeder.prick[1]))
         return {"position": pos}
 
     @app.post("/api/feeders/{id}/feed")

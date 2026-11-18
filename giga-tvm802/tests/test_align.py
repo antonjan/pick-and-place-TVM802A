@@ -166,9 +166,10 @@ def test_board_mode_recovers_each_board(tmp_path):
             truth = truth_job(job)
             assert sorted(new.board_fits) == [0, 1]
             for b in (0, 1):
-                ox, oy, r = new.board_fits[b]
+                ox, oy, r, s = new.board_fits[b]
                 assert_near((ox, oy), to_world(truth, b, 0.0, 0.0))  # board 1: rot(0.4) @ (50, 0) + origin
                 assert r == pytest.approx(SIM_BOARD_ERROR_ROT, abs=TOL)
+                assert s == pytest.approx(1.0, abs=1e-3)  # the simulated boards have the design size
             assert new.fit["mode"] == "board" and len(new.fit["points"]) == 6
 
             # A part on board 1 lands where the truth puts it.

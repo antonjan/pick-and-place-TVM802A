@@ -36,7 +36,7 @@ const TASKS = {
 };
 
 // Feeder-tab actions. needs: a feeder must be selected; drag: drag feeders only;
-// nozzle: uses the selected nozzle. Every action needs the machine homed and idle.
+// tray: tray feeders only; nozzle: uses the selected nozzle. Every action needs the machine homed and idle.
 const FEEDER_ACTIONS = {
   "teach-pick": { label: "Teach pick", needs: true,
                   run: (id) => api(fpath(id, "/teach/pick")) },
@@ -44,6 +44,8 @@ const FEEDER_ACTIONS = {
                    run: (id) => api(fpath(id, "/teach/prick")) },
   "goto": { label: "Go to pick", needs: true,
             run: (id) => api(fpath(id, "/goto")) },
+  "teach-tray-end": { label: "Teach last part", needs: true, tray: true,
+                      run: (id) => api(fpath(id, "/teach/tray-end")) },
   "feed": { label: "Feed", needs: true, drag: true,
             run: (id) => api(fpath(id, "/feed")) },
   "pick": { label: "Pick", needs: true, nozzle: true,
@@ -204,6 +206,8 @@ async function getJson(path) {
 // ------------------------------------------------------------------ tabs
 
 function showTab(name) {
+  if (!document.querySelector(`main[data-tab="${name}"]`)) name = "job";
+  try { localStorage.setItem("tab", name); } catch (_) { /* storage blocked */ }
   for (const b of $$("nav button.tab[data-tab]")) b.classList.toggle("active", b.dataset.tab === name);
   for (const page of $$("main[data-tab]")) page.hidden = page.dataset.tab !== name;
   if (name === "setup") refreshCalibration();
@@ -217,6 +221,7 @@ function showTab(name) {
   if (name === "job") onJobTabShown();
   else onJobTabHidden();
   syncStreams();
+  setTimeout(() => sizeTableBoxes(), 0);  // tables of the tab just shown get their height
 }
 
 // ------------------------------------------------------------------ rendering
@@ -241,7 +246,10 @@ function render(s) {
   }
   setPill($("#pill-homed"), s.homed ? "Homed" : "Not homed", s.homed ? "success" : "warning");
   setPill($("#pill-busy"), s.busy ? sentence(s.busy) : "Idle", s.busy ? "accent" : "");
-  setPill($("#pill-speed"), `Speed ${s.speed_mode ?? "?"}`, "");
+  // Job / jog speed levels (vendor speed slider: level n = (n+1)×10 %).
+  const sp = s.speed;
+  setPill($("#pill-speed"), sp ? `Speed ${(sp.job_level + 1) * 10} %` : "Speed ?", "");
+  $("#pill-speed").title = sp ? `Job speed ${(sp.job_level + 1) * 10} % · jog speed ${(sp.jog_level + 1) * 10} % (Defaults tab, Motion)` : "";
 
   const p = s.position;
   $("#pos-x").textContent = p.x.toFixed(3);
@@ -290,6 +298,7 @@ function renderCameras() {
     }
     const sharp = c.sharpness == null ? "" : ` · sharpness ${Math.round(c.sharpness)}`;
     el.textContent = c.connected ? `${c.fps.toFixed(1)} fps · ${c.width}×${c.height}${sharp}` : (c.error || "disconnected");
+    el.title = el.textContent;  // the strip cuts the text short to the picture's width
     el.className = `cam-status ${c.connected ? "ok" : "bad"}`;
   }
   syncStreams();
@@ -811,6 +820,52 @@ function estop() {
   api("/api/estop").catch(() => {});
 }
 
+// The machine controls in the top bar can be folded away to give the tabs more room.
+function initCtrlCollapse() {
+  const btn = $("#ctrl-collapse");
+  const apply = (hidden) => {
+    $("#ctrl-panel").hidden = hidden;
+    btn.setAttribute("aria-expanded", String(!hidden));
+    btn.classList.toggle("folded", hidden);
+  };
+  let hidden = false;
+  try { hidden = localStorage.getItem("ctrlHidden") === "1"; } catch (_) { /* storage blocked */ }
+  apply(hidden);
+  btn.addEventListener("click", () => {
+    hidden = !hidden;
+    apply(hidden);
+    try { localStorage.setItem("ctrlHidden", hidden ? "1" : "0"); } catch (_) { /* storage blocked */ }
+  });
+}
+
+// Keep --topbar-h equal to the real top bar height (it changes when the machine
+// controls are folded or the bar wraps), so the scrolling tables fit below it.
+function initTopbarHeight() {
+  const bar = $("header.topbar");
+  if (!bar) return;
+  const set = () => {
+    const barH = bar.getBoundingClientRect().height;
+    document.documentElement.style.setProperty("--topbar-h", `${barH}px`);
+    // Each table box gets the room left below the bar once its card is scrolled up to
+    // the bar: the window minus the bar, the card's heading part above the table and the
+    // card's bottom padding. Then its horizontal scrollbar is always on screen.
+    for (const box of $$(".table-scroll")) {
+      const card = box.closest(".card");
+      if (!card || !box.offsetParent) continue;  // on a hidden tab: done when it is shown
+      const head = box.getBoundingClientRect().top - card.getBoundingClientRect().top;
+      const pad = parseFloat(getComputedStyle(card).paddingBottom) || 0;
+      box.style.maxHeight = `${Math.max(240, window.innerHeight - barH - head - pad - 12)}px`;
+    }
+  };
+  set();
+  if ("ResizeObserver" in window) new ResizeObserver(set).observe(bar);
+  window.addEventListener("resize", set);
+  // Tables on a tab that was hidden have no size yet: showTab() calls this once the tab shows.
+  sizeTableBoxes = set;
+}
+
+let sizeTableBoxes = () => {};
+
 function initKeys() {
   document.addEventListener("keydown", (ev) => {
     if (ev.key === "Escape") return estop();
@@ -859,7 +914,7 @@ function setDirection(dir) {
 function fillForm(f) {
   const d = f || { id: "", name: "", kind: "strip", pick: [0, 0], direction: [1, 0], pitch: 4, count: 0,
                    capacity: null, rotation: 0, pick_depth: configDefault("head", "pick_depth", 3), prick: null, needs_feed: true,
-                   enabled: true, value: "", package: "" };
+                   tray_end: null, tray_cols: 1, tray_rows: 1, enabled: true, value: "", package: "" };
   const set = (name, v) => { field(name).value = v ?? ""; };
   set("id", d.id);
   field("id").readOnly = selectedId !== null;
@@ -875,6 +930,10 @@ function fillForm(f) {
   set("pick_depth", round3(d.pick_depth));
   set("prick_x", d.prick ? round3(d.prick[0]) : "");
   set("prick_y", d.prick ? round3(d.prick[1]) : "");
+  set("tray_x", d.tray_end ? round3(d.tray_end[0]) : "");
+  set("tray_y", d.tray_end ? round3(d.tray_end[1]) : "");
+  set("tray_cols", d.tray_cols ?? 1);
+  set("tray_rows", d.tray_rows ?? 1);
   field("needs_feed").checked = !!d.needs_feed;
   field("enabled").checked = !!d.enabled;
   set("value", d.value);
@@ -885,8 +944,11 @@ function fillForm(f) {
 }
 
 function applyKindVisibility() {
-  const drag = field("kind").value === "drag";
-  for (const el of $$("#feeder-form .drag-only")) el.hidden = !drag;
+  const kind = field("kind").value;
+  for (const el of $$("#feeder-form .drag-only")) el.hidden = kind !== "drag";
+  for (const el of $$("#feeder-form .tray-only")) el.hidden = kind !== "tray";
+  // A tray takes its count from the grid: no pitch, feed direction or capacity.
+  for (const el of $$("#feeder-form .not-tray")) el.hidden = kind === "tray";
 }
 
 // Form values -> request body. Throws Error with a readable message.
@@ -901,6 +963,9 @@ function readFeederForm() {
   if (!id) throw new Error("feeder id is required");
   const prick = text("prick_x") !== "" && text("prick_y") !== ""
     ? [num("prick_x", "prick X"), num("prick_y", "prick Y")] : null;
+  const tray = text("kind") === "tray";
+  const trayEnd = text("tray_x") !== "" && text("tray_y") !== ""
+    ? [num("tray_x", "last part X"), num("tray_y", "last part Y")] : null;
   const body = {
     name: text("name"),
     kind: text("kind"),
@@ -908,10 +973,13 @@ function readFeederForm() {
     direction: field("direction").value.split(",").map(Number),
     pitch: num("pitch", "pitch"),
     count: Math.trunc(num("count", "count")),
-    capacity: text("capacity") === "" ? null : Math.trunc(num("capacity", "capacity")),
+    capacity: tray || text("capacity") === "" ? null : Math.trunc(num("capacity", "capacity")),
     rotation: -num("rotation", "rotation offset") + 0,  // offset -> part rotation in the tape
     pick_depth: num("pick_depth", "pick depth"),
     prick,
+    tray_end: trayEnd,
+    tray_cols: text("tray_cols") === "" ? 1 : Math.trunc(num("tray_cols", "columns")),
+    tray_rows: text("tray_rows") === "" ? 1 : Math.trunc(num("tray_rows", "rows")),
     needs_feed: field("needs_feed").checked,
     enabled: field("enabled").checked,
     value: text("value"),
@@ -954,9 +1022,29 @@ function renderFeederTable() {
     const loc = `(${f.pick_location[0].toFixed(2)}, ${f.pick_location[1].toFixed(2)})`;
     const status = document.createElement("td");
     status.append(...feederChips(f));
+    // Camera to the pick point / the needle point of this feeder (to check them).
+    const go = document.createElement("td");
+    go.className = "row-actions";
+    const camBtn = (label, title, path, enabled) => {
+      const b = buttonEl(label, "btn btn-ghost btn-small feeder-cam", "i-crosshair");
+      b.title = title;
+      b.dataset.needsHome = "1";
+      b.dataset.enabled = enabled ? "1" : "";
+      b.disabled = !enabled || !(state && state.homed) || feederBusy;
+      b.addEventListener("click", (ev) => {
+        ev.stopPropagation();  // don't select the row
+        feederAction(`${label}: ${f.id}`, () => api(fpath(f.id, path)));
+      });
+      return b;
+    };
+    go.append(
+      camBtn("Pick", `Move the camera to ${f.id}'s pick point`, "/goto", true),
+      camBtn("Prick", f.prick ? `Move the camera to ${f.id}'s needle point` : "No needle point (this feeder has none)",
+             "/goto-prick", !!f.prick),
+    );
     tr.append(cell(f.id), cell(f.name || "–"), cell(f.bank ? `${f.bank} · ${f.lane ?? "–"}` : "–"),
               cell(f.kind), cell(f.pitch), cell(count),
-              cell(loc, "mono"), status);
+              cell(loc, "mono"), status, go);
     tr.addEventListener("click", () => selectFeeder(f.id));
     return tr;
   }));
@@ -1179,11 +1267,14 @@ function updateFeederButtons() {
   const headBusy = !!(headState && headState.busy);
   const idle = !feederBusy && !taskRunning && !machineBusy && !headBusy && !!state.homed;
   const drag = !!sel && sel.kind === "drag";
+  const tray = !!sel && sel.kind === "tray";
   for (const b of $$("[data-feeder-action]")) {
     const act = FEEDER_ACTIONS[b.dataset.feederAction];
     if (act.drag !== undefined) b.hidden = !drag;
+    if (act.tray !== undefined) b.hidden = !tray;
     b.disabled = !idle || (act.needs && selectedId === null);
   }
+  for (const b of $$(".feeder-cam")) b.disabled = !idle || !b.dataset.enabled;
   for (const b of $$("#nozzle-sel button")) b.disabled = feederBusy;
   for (const b of $$("#vision-sel button")) b.disabled = feederBusy;
   $("#feeder-new").disabled = feederBusy;
@@ -1270,6 +1361,8 @@ initVisionSwitch();
 initViews();
 initSetup();
 initKeys();
+initCtrlCollapse();
+initTopbarHeight();
 connect();
 fetch("/api/state").then((r) => r.json()).then(render).catch(() => {});
 pollCameras();

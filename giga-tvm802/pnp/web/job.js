@@ -203,6 +203,10 @@ function renderImport(job) {
 }
 
 function renderBoardForm(job) {
+  // The scale is read-only (set by the two-point or fiducial measurement), so it is shown even while the form is being edited.
+  $("#job-scale").textContent = (job && Number.isFinite(job.scale) ? job.scale : 1).toFixed(5);
+  // The PCB thickness saves on its own (change), so it is kept out of the board form's dirty flag.
+  if (document.activeElement !== $("#job-pcb")) $("#job-pcb").value = job ? String(job.pcb_thickness) : "";
   if (boardDirty) return;
   $("#job-ox").value = job && job.origin ? round3(job.origin[0]) : "";
   $("#job-oy").value = job && job.origin ? round3(job.origin[1]) : "";
@@ -303,7 +307,9 @@ async function applyTwoPoints() {
     const err = al.distance_error;
     const out = $("#ref-result");
     out.hidden = false;
+    const scalePct = (al.scale - 1) * 100;
     out.textContent = `Origin (${al.origin[0].toFixed(3)}, ${al.origin[1].toFixed(3)}) · rotation ${al.rotation.toFixed(3)}° · ` +
+      `scale ${al.scale.toFixed(5)} (${scalePct >= 0 ? "+" : "−"}${Math.abs(scalePct).toFixed(2)} %) · ` +
       `point 1 to 2: ${al.board_distance.toFixed(3)} mm on the board, ${al.measured_distance.toFixed(3)} mm measured ` +
       `(${err >= 0 ? "+" : ""}${err.toFixed(3)} mm)` +
       (Math.abs(err) > 0.3 ? " — large difference: check you centred on the right features" : "");
@@ -347,6 +353,59 @@ function matchesFilter(item) {
   return true;
 }
 
+// Speed % of a part (the vendor's per-component "Speed"): applies to the moves carrying it.
+function speedCell(item, part, locked) {
+  const inp = document.createElement("input");
+  inp.type = "number";
+  inp.min = "10";
+  inp.max = "100";
+  inp.step = "10";
+  inp.className = "num part-coord part-speed";
+  inp.value = part ? part.speed ?? 100 : "";
+  inp.disabled = locked || !part;
+  inp.setAttribute("aria-label", `Speed % of ${item.ref}`);
+  inp.addEventListener("change", () => {
+    const v = parseInt(inp.value, 10);
+    if (!(v >= 10 && v <= 100)) { showError(`Speed of ${item.ref} must be 10–100 %`); return; }
+    savePart(item.ref, { speed: v });
+  });
+  return tdWith(inp);
+}
+
+// Height (mm) of a part, held by its top. Empty = no own height: the package's, else the default.
+function heightCell(item, part, locked) {
+  const inp = document.createElement("input");
+  inp.type = "number";
+  inp.min = "0";
+  inp.max = "30";
+  inp.step = "0.1";
+  inp.className = "num part-coord part-height";
+  inp.value = part && part.height != null ? String(part.height) : "";
+  inp.placeholder = fmt(item.height, 2);
+  inp.disabled = locked || !part;
+  inp.setAttribute("aria-label", `Height of ${item.ref}`);
+  inp.addEventListener("change", () => {
+    if (inp.value.trim() === "") { savePart(item.ref, { height_auto: true }); return; }
+    const v = parseFloat(inp.value);
+    if (!(v >= 0 && v <= 30)) { showError(`Height of ${item.ref} must be 0–30 mm`); return; }
+    savePart(item.ref, { height: v });
+  });
+  return tdWith(inp);
+}
+
+// Job speed level (Run card), stored as motion.job_speed_level in machine.yaml.
+async function setJobSpeed(level) {
+  await jobCall(`Job speed ${(level + 1) * 10} %`, "/api/config/defaults",
+                { changes: { motion: { job_speed_level: level } } }, "PUT");
+}
+
+function renderJobSpeed() {
+  const sel = $("#job-speed");
+  const lv = state && state.speed ? state.speed.job_level : null;
+  if (lv != null && document.activeElement !== sel) sel.value = String(lv);
+  sel.disabled = jobBusy || runnerBusy();
+}
+
 // Angle as -180..180 (what the nozzle turns to; it takes the shortest way).
 function fmtAngle(a) {
   const w = ((a + 180) % 360 + 360) % 360 - 180;
@@ -375,7 +434,7 @@ function renderParts(job, plan) {
   const locked = jobBusy || runnerBusy();
   const ready = jobReady();
   const overrides = job ? job.parts.map((p) => [p.ref, p.skip, p.nozzle ?? null, p.feeder ?? null, p.vision ?? null,
-                                                   p.x, p.y, p.rotation]) : [];
+                                                   p.x, p.y, p.rotation, p.speed, p.height ?? null]) : [];
   const sig = JSON.stringify([rows, jobFeederIds, overrides, locked, ready]);
   const tbody = $("#job-rows");
   if (sig === partsSig) return;
@@ -471,9 +530,10 @@ function partRow(item, part, locked, ready) {
     });
     return tdWith(inp);
   };
-  const placeAt = item.x == null
+  let placeAt = item.x == null
     ? "–"
     : `${item.x.toFixed(2)}, ${item.y.toFixed(2)}` + (item.nozzle_angle == null ? "" : ` · ${fmtAngle(item.nozzle_angle)}°`);
+  if (item.place_depth != null) placeAt += ` · depth ${item.place_depth.toFixed(2)}`;
 
   tr.append(
     tdWith(on),
@@ -484,7 +544,9 @@ function partRow(item, part, locked, ready) {
     coord("x", "X", part ? part.x : 0, 3),
     coord("y", "Y", part ? part.y : 0, 3),
     coord("rotation", "Rotation", part ? part.rotation : 0, 2),
+    heightCell(item, part, locked),
     cell(placeAt, "mono place-at"),
+    speedCell(item, part, locked),
     tdWith(noz),
     tdWith(feed),
     tdWith(vis),
@@ -723,8 +785,13 @@ function updateJobButtons(job) {
     || (s === "stepping" && !!(runStatus().step && runStatus().step.running));
   $("#job-reset").disabled = busy || runner || !job;
   $("#job-reset-nozzles").disabled = busy || runner;
+  renderJobSpeed();
   $("#job-file").disabled = busy || runner;
-  $("#job-import-btn").disabled = busy || runner || !$("#job-file").files.length;
+  const file = $("#job-file").files[0];
+  $("#job-import-opts").hidden = !(file && isJobFile(file.name));
+  $("#job-reset-statuses").disabled = busy || runner;
+  $("#job-import-btn").disabled = busy || runner || !file;
+  $("#job-export").disabled = busy || !job;
   $("#job-delete").disabled = busy || runner || !job;
   $("#parts-enable-shown").disabled = busy || runner || !job;
   $("#parts-disable-shown").disabled = busy || runner || !job;
@@ -802,6 +869,12 @@ function boardBody() {
   return { origin, rotation: parseNum($("#job-rot").value.trim(), "Rotation") };
 }
 
+async function savePcbThickness() {
+  const v = parseFloat($("#job-pcb").value);
+  if (!(v > 0 && v <= 10)) { showError("PCB thickness must be above 0 and at most 10 mm"); return; }
+  await jobCall("Set PCB thickness", "/api/job/pcb-thickness", { pcb_thickness: v }, "PUT");
+}
+
 async function saveBoard() {
   let body;
   try {
@@ -850,12 +923,34 @@ async function importJob() {
     reportError(err);
     return;
   }
-  const name = file.name.replace(/\.[^.]+$/, "");
-  const res = await jobCall(`Import ${file.name}`, "/api/job/import", { name, filename: file.name, text });
+  let res;
+  if (isJobFile(file.name)) {
+    res = await jobCall(`Import ${file.name}`, "/api/job/import-file",
+      { text, reset_statuses: $("#job-reset-statuses").checked });
+  } else {
+    const name = file.name.replace(/\.[^.]+$/, "");
+    res = await jobCall(`Import ${file.name}`, "/api/job/import", { name, filename: file.name, text });
+  }
   if (res) {
     input.value = "";
     boardDirty = false;
   }
+}
+
+// A job file exported from this app (.yaml) rather than a KiCad position file.
+function isJobFile(name) {
+  return /\.ya?ml$/i.test(name);
+}
+
+// Export the current job: a plain link download, the server names the file job-<name>-<date>.yaml.
+function exportJob() {
+  const a = document.createElement("a");
+  a.href = "/api/job/export";
+  a.download = "";
+  document.body.append(a);
+  a.click();
+  a.remove();
+  log("job exported");
 }
 
 async function deleteJob() {
@@ -883,6 +978,7 @@ async function resetStatuses() {
 function initJob() {
   $("#job-file").addEventListener("change", () => updateJobButtons(jobData && jobData.job));
   $("#job-import-btn").addEventListener("click", importJob);
+  $("#job-export").addEventListener("click", exportJob);
   $("#job-delete").addEventListener("click", deleteJob);
   $("#job-start").addEventListener("click", () => jobCall("Start job", "/api/job/start"));
   $("#job-pause").addEventListener("click", () => jobCall("Pause job", "/api/job/pause"));
@@ -897,6 +993,7 @@ function initJob() {
     });
   }
   $("#job-save-board").addEventListener("click", saveBoard);
+  $("#job-pcb").addEventListener("change", savePcbThickness);
   for (const row of $$(".ref-row")) {
     row.querySelector(".ref-part").addEventListener("change", () => refPartChanged(row));
     row.querySelector(".ref-record").addEventListener("click", () => recordRef(row));
@@ -921,6 +1018,7 @@ function initJob() {
     });
   }
   $("#job-reset-nozzles").addEventListener("click", resetNozzles);
+  $("#job-speed").addEventListener("change", (e) => setJobSpeed(parseInt(e.target.value, 10)));
   $("#parts-enable-shown").addEventListener("click", () => setShownParts(true));
   $("#parts-disable-shown").addEventListener("click", () => setShownParts(false));
   updateJobButtons(null);

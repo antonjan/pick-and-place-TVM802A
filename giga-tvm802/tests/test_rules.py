@@ -250,3 +250,38 @@ def test_file_with_body_list_loads_normalised(tmp_path):
     rules = PackageRules(path)
     assert rules.body_for("R_0805") == (2.0, 1.25)
     assert rules.vision_for("R_0805") is False
+
+
+def test_height_round_trip_and_lookup(tmp_path):
+    path = tmp_path / "packages.yaml"
+    rules = PackageRules(path)
+    assert rules.height_for("R0603") is None  # no rule height: the part or head.part_height gives it
+    rules.set(1, [PackageRule("*0603*", 2, height=0.9), PackageRule("SOIC*", 1)])
+    assert rules.height_for("R0603") == 0.9
+    assert rules.height_for("SOIC-8") is None
+    assert rules.height_for("WEIRD") is None
+    reloaded = PackageRules(path)
+    assert reloaded.height_for("R0603") == 0.9
+    assert reloaded.rules[0].height == 0.9 and reloaded.rules[1].height is None
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert data["rules"][0]["height"] == 0.9 and data["rules"][1]["height"] is None
+
+
+def test_height_zero_is_allowed_and_negative_is_refused(tmp_path):
+    rules = PackageRules(tmp_path / "packages.yaml")
+    rules.set(1, [PackageRule("*0603*", 2, height=0)])
+    assert rules.height_for("R0603") == 0
+    rules.set(1, [PackageRule("*0603*", 2, height=0.4)])
+    for bad in (-0.1, float("nan"), True, "tall"):
+        with pytest.raises(ValueError, match="height"):
+            rules.set(1, [PackageRule("*0603*", 2, height=bad)])
+    assert rules.height_for("R0603") == 0.4  # kept
+
+
+def test_file_height_is_checked_on_load(tmp_path):
+    path = tmp_path / "packages.yaml"
+    path.write_text("default_nozzle: 1\nrules:\n  - {pattern: '*0603*', height: 1.2}\n")
+    assert PackageRules(path).height_for("R0603") == 1.2
+    path.write_text("default_nozzle: 1\nrules:\n  - {pattern: '*0603*', height: -1}\n")
+    with pytest.raises(ValueError, match="height"):
+        PackageRules(path)

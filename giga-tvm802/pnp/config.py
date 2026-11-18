@@ -69,6 +69,10 @@ class MotionConfig:
     min_timeout: float = 3.0  # s added to every move timeout
     safe_z_tolerance: float = 0.05  # mm; |z| above this counts as "nozzle down"
     allow_unhomed_jog: bool = True  # X/Y jogs allowed before homing (no soft limits)
+    # Speed levels of the vendor software (1..11, shown as (level+1)*10 %; 4 = "50 %",
+    # its default and what this app always used). Jog = manual moves, job = placing.
+    jog_speed_level: int = 4
+    job_speed_level: int = 4
     max_unhomed_jog: float = 10.0  # mm per jog while unhomed
 
 
@@ -94,8 +98,15 @@ class HeadConfig:
     # held parts, so good picks were dropped. Vacuum now stays on until place/discard.
     check_vacuum: bool = False
     place_depth: float = 3.0  # default nozzle depth for placing (mm)
+    # Opt-in place depth model (the vendor software's): with bed_depth > 0 a part is placed at
+    # bed_depth - PCB thickness - part height, the nozzle holding the part by its top.
+    bed_depth: float = 0.0  # nozzle depth (mm) where the tip touches the surface the PCB lies on; 0 = not set
+    part_height: float = 0.5  # part height (mm) when neither the part nor its package rule gives one
     pick_depth: float = 3.0  # default nozzle depth for picking, used for new feeders/lanes (mm)
     discard: tuple[float, ...] = ()  # world [x, y] of the discard bin; empty = not set
+    # The automatic run picks one part with each nozzle, then places both (saves a board<->feeder
+    # trip per pair). Step mode always does one part at a time.
+    dual_pick: bool = False
 
 
 @dataclass

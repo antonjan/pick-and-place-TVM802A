@@ -460,6 +460,18 @@ Built by Haiku agents against [docs/phase6-design.md](docs/phase6-design.md), th
 - **Step mode vision stop:** for a part that bottom vision checks (`HeadOps.will_inspect`), the "move to place" stage is split into `inspect` (measure over the up camera, stay there, up LEDs left on) and `align_move` (LEDs off, corrected turn and move). Parts without vision keep the single `place_move`. Checked on the machine.
 - **Tests:** 518.
 
+### Speed control (2026-11-18, from the vendor software)
+
+- The vendor program (`Software/English-20160321-V2.12/SucfaceMount.exe`) is .NET; decompiled with ilspycmd 8.2 (installed in `~/.dotnet`, run with `DOTNET_ROLL_FORWARD=Major`). Its `TcpControler.WriteSpeed_IMM/QUEUE(level, scale)` builds the 0x06 frame (0x0F = queued variant): `06 00 <level> 00`, then 6 int32 accelerations, 6 decelerations, 6 velocities (one per frame slot), from tables `AccDictionary`/`DecDictionary`/`VelDictionary` at level 0..11, velocities × scale/100. `protocol.encode_speed`, tables `SPEED_ACC/DEC/VEL`. Level 4 at 100 % is byte-for-byte the block always sent before.
+- Vendor use: speed slider = level 0..11 shown as (level+1)×10 % (default 4); job moves with a part use the component's "Speed" % as scale; manual jog uses level 0 ("Low", single pulses) or 2 ("High", continuous) toggled by `DI_Button_Speed_Grade` (state byte 10 bit 0x02 = our DotMove/ConMove key); `DO_LED_Speed1/2` (0x80/0x100, our FAST/SLOW bits) are only the panel lights for that mode. Homing uses level 4.
+- App: `motion.job_speed_level` / `jog_speed_level` (1..11, default 4); `Machine.speed(level, percent)` context (a ContextVar, so a job's speed stays in the runner task); `JobPart.speed` % for the moves carrying the part; time limits scale by the velocity ratio (never shortened); panel lights follow Dot/Con. Velocity units are not measured yet (time a 100 mm move at a few levels).
+- **Further vendor features built (2026-11-18, by Haiku agents from specs, reviewed):**
+  - Board scale: `Job.scale` (and a 4th value in `board_fits`) multiplies panel points before the rotation; `fit_two_points` returns it, `fit_rigid(with_scale=True)` for the final fiducial fits; max scale error 2 %. Verified: a 0.9966-scaled, 0.7°-rotated board maps to 1e-13 mm.
+  - Place depth: `head.bed_depth` (0 = off), `Job.pcb_thickness` (1.6), `JobPart.height` / `PackageRule.height` / `head.part_height`; depth = bed − thickness − height unless a rule sets place_depth; `plan(..., head=)`.
+  - IC tray: feeder kind "tray" with `tray_end`, `tray_cols`, `tray_rows`; row-by-row axis-aligned grid like the vendor's IcStack; `teach/tray-end`.
+  - Dual pick: `head.dual_pick` (off by default); `JobRunner._place_pair` picks the next part for each nozzle, then places both; step mode stays single. Sim only so far.
+- Other decompiled facts worth keeping: `EFAC` = {1, 1, 32.8084, 4.4444, 32.8084, 4.4444} (pulses per µm / per 0.01°?), CmdType enum (0 update, 1 param read, 2 param write, 3 param save, 4 set DO, 5 read speed, 6 write speed, 7 write pos, 8 PTP, 9 halt, 10 stop, 11 control buf, 12 PTP queue wait, 13 PTP queue, 14 set DO queue, 15 write speed queue, ...).
+
 ## 6. First concrete steps (original)
 
 1. Create `pyproject.toml` and the package skeleton above.

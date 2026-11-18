@@ -1,9 +1,10 @@
 name: Voip_Board-all
 source: Voip_Board-all.pos
 origin:
-- -40.477801396570946
-- -40.03136802218793
-rotation: -0.1788205522494195
+- 50.28678720486941
+- -40.52799956366892
+rotation: 0.05576538963174471
+scale: 0.9980710879506802
 boards:
 - x: 0.0
   y: 0.0
@@ -21,6 +22,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: C2
   value: 10uF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
@@ -32,6 +35,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: C3
   value: 10uF_16V
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
@@ -43,6 +48,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: C4
   value: DNP
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
@@ -54,6 +61,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: C5
   value: 22uF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
@@ -65,6 +74,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: C6
   value: 22uF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
@@ -76,6 +87,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: C7
   value: DNP
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
@@ -87,6 +100,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: C8
   value: 1uF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
@@ -98,6 +113,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: C9
   value: 1nF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
@@ -109,6 +126,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: C10
   value: 100nF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
@@ -120,6 +139,8 @@ parts:
   nozzle: null
   feeder: null
   vision: false
+  speed: 100
+  height: null
 - ref: C11
   value: 10pF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
@@ -131,6 +152,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: C12
   value: 1uF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
@@ -142,6 +165,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: C13
   value: 1uF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
@@ -153,6 +178,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: C14
   value: 1uF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
@@ -164,6 +191,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: C15
   value: 1nF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
@@ -175,6 +204,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: C16
   value: 1nF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
@@ -186,6 +217,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: C17
   value: 100nF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
@@ -197,6 +230,8 @@ parts:
   nozzle: null
   feeder: null
   vision: false
+  speed: 100
+  height: null
 - ref: C18
   value: 100nF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
@@ -208,6 +243,8 @@ parts:
   nozzle: null
   feeder: null
   vision: false
+  speed: 100
+  height: null
 - ref: C19
   value: 1uF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
@@ -219,6 +256,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: C20
   value: 10uF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
@@ -230,6 +269,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: C21
   value: 100nF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
@@ -241,6 +282,8 @@ parts:
   nozzle: null
   feeder: null
   vision: false
+  speed: 100
+  height: null
 - ref: C22
   value: 1nF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
@@ -252,6 +295,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: C23
   value: 10pF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
@@ -263,6 +308,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: C24
   value: 10pF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
@@ -274,6 +321,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: C25
   value: 100nF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
@@ -285,6 +334,8 @@ parts:
   nozzle: null
   feeder: null
   vision: false
+  speed: 100
+  height: null
 - ref: C26
   value: 10uF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
@@ -296,6 +347,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: C27
   value: 100nF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
@@ -307,6 +360,8 @@ parts:
   nozzle: null
   feeder: null
   vision: false
+  speed: 100
+  height: null
 - ref: C28
   value: 10uF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
@@ -318,6 +373,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: C29
   value: 100nF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
@@ -329,6 +386,8 @@ parts:
   nozzle: null
   feeder: null
   vision: false
+  speed: 100
+  height: null
 - ref: C30
   value: 1uF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
@@ -340,6 +399,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: C31
   value: 1uF
   package: C_0805_2012Metric
@@ -351,6 +412,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: C32
   value: 10nF
   package: C_0805_2012Metric
@@ -362,6 +425,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: C33
   value: 10uF
   package: C_0805_2012Metric
@@ -373,6 +438,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: C34
   value: 1uF
   package: C_0805_2012Metric
@@ -384,6 +451,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: C35
   value: 100nF
   package: C_0805_2012Metric
@@ -395,6 +464,8 @@ parts:
   nozzle: null
   feeder: null
   vision: false
+  speed: 100
+  height: null
 - ref: C36
   value: 100nF
   package: C_0805_2012Metric
@@ -406,6 +477,8 @@ parts:
   nozzle: null
   feeder: null
   vision: false
+  speed: 100
+  height: null
 - ref: C37
   value: 100nF
   package: C_0805_2012Metric
@@ -417,6 +490,8 @@ parts:
   nozzle: null
   feeder: null
   vision: false
+  speed: 100
+  height: null
 - ref: C38
   value: 1uF
   package: C_0805_2012Metric
@@ -428,6 +503,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: C39
   value: 100nF
   package: C_0805_2012Metric
@@ -439,6 +516,8 @@ parts:
   nozzle: null
   feeder: null
   vision: false
+  speed: 100
+  height: null
 - ref: C40
   value: 100nF
   package: C_0805_2012Metric
@@ -450,6 +529,8 @@ parts:
   nozzle: null
   feeder: null
   vision: false
+  speed: 100
+  height: null
 - ref: C41
   value: 1uF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
@@ -461,6 +542,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: C42
   value: 1.5pF
   package: C_0805_2012Metric
@@ -472,6 +555,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: C43
   value: 1.5pF
   package: C_0805_2012Metric
@@ -483,6 +568,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: C44
   value: 5nF
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
@@ -494,6 +581,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: C45
   value: 1.5pF
   package: C_0805_2012Metric
@@ -505,6 +594,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: C46
   value: 10uF_16V
   package: C_0805_2012Metric_Pad1.18x1.45mm_HandSolder
@@ -516,6 +607,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: D1
   value: 1N4148W
   package: D_SOD-123
@@ -527,6 +620,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: D2
   value: 1N4148W
   package: D_SOD-123
@@ -538,6 +633,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: D3
   value: M1
   package: D_SMA
@@ -549,6 +646,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: IC1
   value: AZ1117H-3.3TRE1
   package: SOT230P700X180-4N
@@ -560,6 +659,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: L1
   value: 24nH
   package: L_0805_2012Metric_Pad1.15x1.40mm_HandSolder
@@ -571,6 +672,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: L2
   value: 2nH
   package: L_0603_1608Metric
@@ -582,6 +685,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: L3
   value: 2.7nH
   package: L_0805_2012Metric
@@ -593,6 +698,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: L4
   value: 2.7nH
   package: L_0805_2012Metric
@@ -604,6 +711,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: Q1
   value: BC849
   package: SOT-23
@@ -615,6 +724,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: R1
   value: '100'
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
@@ -626,6 +737,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: R2
   value: 5K1
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
@@ -637,6 +750,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: R3
   value: '0'
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
@@ -648,6 +763,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: R4
   value: '0'
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
@@ -659,6 +776,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: R5
   value: 5K1
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
@@ -670,6 +789,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: R6
   value: 10K
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
@@ -681,6 +802,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: R7
   value: '220'
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
@@ -692,6 +815,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: R8
   value: 1K
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
@@ -703,6 +828,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: R9
   value: '750'
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
@@ -714,6 +841,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: R10
   value: 10K
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
@@ -725,6 +854,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: R11
   value: 10K
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
@@ -736,6 +867,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: R12
   value: 10K
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
@@ -747,6 +880,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: R13
   value: 1K
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
@@ -758,6 +893,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: R14
   value: 10K
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
@@ -769,6 +906,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: R15
   value: 1K
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
@@ -780,6 +919,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: R16
   value: '750'
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
@@ -791,6 +932,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: R17
   value: '750'
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
@@ -802,6 +945,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: R18
   value: 4K7
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
@@ -813,6 +958,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: R19
   value: 10K
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
@@ -824,6 +971,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: R20
   value: 1K
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
@@ -835,6 +984,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: R21
   value: 100K
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
@@ -846,6 +997,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: R22
   value: 4K7
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
@@ -857,6 +1010,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: R23
   value: 4K7
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
@@ -868,6 +1023,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: R24
   value: '750'
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
@@ -879,6 +1036,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: R25
   value: '165'
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
@@ -890,6 +1049,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: R26
   value: 10K
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
@@ -901,6 +1062,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: R27
   value: 6K8
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
@@ -912,6 +1075,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: R28
   value: 1K2
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
@@ -923,6 +1088,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: R29
   value: '0'
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
@@ -934,6 +1101,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: R30
   value: '0'
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
@@ -945,6 +1114,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: R31
   value: '0'
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
@@ -956,6 +1127,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: R32
   value: '0'
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
@@ -967,6 +1140,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: R33
   value: '499'
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
@@ -978,6 +1153,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: R34
   value: '220'
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
@@ -989,6 +1166,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: R35
   value: 10K
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
@@ -1000,6 +1179,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: R36
   value: 4K7
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
@@ -1011,6 +1192,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: R37
   value: 4K7
   package: R_0805_2012Metric_Pad1.20x1.40mm_HandSolder
@@ -1022,6 +1205,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: RV1
   value: '600'
   package: PVG3G501C01R00
@@ -1033,6 +1218,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: RV2
   value: 820k
   package: PVG3G501C01R00
@@ -1044,6 +1231,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: SW1
   value: BOOT
   package: SW_Tactile_SPST_NO_Straight_CK_PTS636Sx25SMTRLFS
@@ -1055,6 +1244,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: SW2
   value: RESET
   package: SW_Tactile_SPST_NO_Straight_CK_PTS636Sx25SMTRLFS
@@ -1066,6 +1257,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: T1
   value: SM-LP-5001_Bourns_600:600_Ohm
   package: SMLP5001
@@ -1077,6 +1270,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: T2
   value: SM-LP-5001_Bourns_600:600_Ohm
   package: SMLP5001
@@ -1088,6 +1283,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: U1
   value: AZ1117H-5.0TRE1
   package: SOT230P700X180-4N
@@ -1099,6 +1296,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: U2
   value: 4N25
   package: DIP-6_W7.62mm_SMDSocket_SmallPads
@@ -1110,6 +1309,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: U3
   value: '~'
   package: TAC5112IRGER
@@ -1121,6 +1322,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 - ref: U4
   value: ESP32-S3FN8
   package: QFN-56-1EP_7x7mm_P0.4mm_EP4x4mm
@@ -1130,8 +1333,10 @@ parts:
   side: top
   skip: false
   nozzle: null
-  feeder: null
+  feeder: L26
   vision: null
+  speed: 100
+  height: null
 - ref: Y1
   value: 40MHz
   package: ABM810000MHZ12D2W
@@ -1143,6 +1348,8 @@ parts:
   nozzle: null
   feeder: null
   vision: null
+  speed: 100
+  height: null
 status:
   0:U4: placed
 fiducials: []
@@ -1158,3 +1365,4 @@ references:
   x: 62.817
   y: 86.049
 reference_board: 0
+pcb_thickness: 1.6

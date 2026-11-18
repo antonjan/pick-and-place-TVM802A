@@ -29,6 +29,8 @@ SECTIONS: list[dict[str, Any]] = [
     {"key": "head", "title": "Pick & place", "advanced": False, "fields": [
         ("pick_depth", "Default pick depth", "mm", "Nozzle depth for picking. Used for new feeders and bank lanes; each feeder can override it.", False),
         ("place_depth", "Default place depth", "mm", "Nozzle depth for placing when no package rule sets one.", False),
+        ("bed_depth", "Bed depth", "mm", "Nozzle depth where the tip touches the surface the PCB lies on. When set, the place depth is bed depth − PCB thickness − part height. 0 = not set: use the place depths as before.", False),
+        ("part_height", "Default part height", "mm", "Part height used when neither the part nor its package rule gives one (only with the bed depth set).", False),
         ("pick_dwell", "Pick dwell", "s", "Time the nozzle stays down on the part with vacuum on.", False),
         ("place_dwell", "Place dwell", "s", "Time the nozzle stays down before releasing the part.", False),
         ("blow_time", "Blow-off time", "s", "Short air blow after releasing a part at place or discard.", False),
@@ -38,6 +40,7 @@ SECTIONS: list[dict[str, Any]] = [
         ("prick_settle", "Needle settle", "s", "Extra wait after switching the feeder needle down or up.", False),
         ("needle_timeout", "Needle sensor timeout", "s", "How long the needle sensor may take to confirm down/up before an error or the stuck-needle alarm.", False),
         ("discard", "Discard bin X, Y", "mm", "Where rejected parts are dropped. Leave empty if there is no bin.", False),
+        ("dual_pick", "Pick with both nozzles", "", "The automatic run picks the next part for nozzle 1 and the next part for nozzle 2, then places both. Saves a trip per pair. Step mode always does one part at a time.", False),
     ]},
     {"key": "vision", "title": "Bottom vision", "advanced": False, "fields": [
         ("bottom_vision", "Bottom vision on", "", "Check and correct each part on the up camera before placing.", False),
@@ -61,6 +64,8 @@ SECTIONS: list[dict[str, Any]] = [
         ("z_speed", "Z speed estimate", "mm/s", "Used for move timeouts.", False),
         ("a_speed", "Rotation speed estimate", "°/s", "Used for move timeouts.", False),
         ("min_timeout", "Extra move time", "s", "Added to every move timeout.", False),
+        ("job_speed_level", "Job speed level", "1–11", "Speed of the moves while placing. Shown as (level+1)×10 %: 4 = 50 %, the vendor software's default. Higher = faster moves and harder acceleration.", False),
+        ("jog_speed_level", "Jog speed level", "1–11", "Speed of manual moves (jog, Go to, camera clicks, feeder actions). 4 = 50 %.", False),
         ("allow_unhomed_jog", "Allow jogging before homing", "", "X/Y jogs before homing (no soft limits then).", False),
         ("max_unhomed_jog", "Max jog before homing", "mm", "Largest single X/Y jog allowed before homing.", False),
         ("safe_z_tolerance", "Nozzle-up tolerance", "mm", "|Z| below this counts as both nozzles up.", True),
@@ -187,6 +192,7 @@ def _check(c: MachineConfig) -> None:
     not_negative = [("head", n) for n in ("pick_depth", "place_depth", "pick_dwell", "place_dwell", "blow_time",
                                           "vacuum_settle", "vacuum_timeout", "prick_settle")]
     not_negative += [("vision", n) for n in ("settle", "size_tolerance", "max_offset_mm", "max_angle_deg")]
+    not_negative += [("head", "bed_depth"), ("head", "part_height")]
     not_negative += [("motion", "min_timeout"), ("motion", "max_unhomed_jog")]
     for section, name in not_negative:
         if getattr(getattr(c, section), name) < 0:
@@ -194,8 +200,15 @@ def _check(c: MachineConfig) -> None:
     for depth in ("pick_depth", "place_depth"):
         if getattr(c.head, depth) > max(c.limits.z1_max, c.limits.z2_max):
             raise ValueError(f"{label('head', depth)} is deeper than the nozzles' lowest point")
+    # With the bed depth set, place depths are computed from it: the deepest the nozzle may
+    # reach is the same limit the fixed depths are held to.
+    if c.head.bed_depth > max(c.limits.z1_max, c.limits.z2_max):
+        raise ValueError(f"{label('head', 'bed_depth')} is deeper than the nozzles' lowest point")
     if len(c.head.discard) not in (0, 2):
         raise ValueError("Discard bin: give X and Y, or leave both empty")
+    for name in ("job_speed_level", "jog_speed_level"):
+        if not 1 <= getattr(c.motion, name) <= 11:
+            raise ValueError(f"{label('motion', name)} must be 1–11")
     if not 0 <= c.vision.min_brightness <= 255:
         raise ValueError("Brightness threshold must be 0–255")
     if len(c.vision.tip_diameter) != 2 or min(c.vision.tip_diameter) <= 0:

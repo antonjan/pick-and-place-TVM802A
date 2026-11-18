@@ -20,9 +20,13 @@ from typing import TYPE_CHECKING, Any
 import yaml
 
 if TYPE_CHECKING:
+    from pnp.config import HeadConfig
     from pnp.job.feeders import Feeder
     from pnp.job.kicad import PosPart
     from pnp.job.rules import PackageRules
+
+PCB_THICKNESS_MAX = 10.0   # mm, the largest board the job accepts
+PART_HEIGHT_MAX = 30.0     # mm, the tallest part the job accepts
 
 
 @dataclass
@@ -38,6 +42,8 @@ class JobPart:
     nozzle: int | None = None    # user override; None = PackageRules.nozzle_for(package)
     feeder: str | None = None    # user override; None = automatic match
     vision: bool | None = None   # user override; None = PackageRules.vision_for(package)
+    speed: int = 100             # % of the job speed for the moves that carry this part (vendor "Speed")
+    height: float | None = None  # part height (mm) the nozzle holds it by; None = PackageRules.height_for, else head.part_height
 
 
 @dataclass
@@ -71,17 +77,20 @@ class Job:
     boards: list[BoardInstance] = field(default_factory=lambda: [BoardInstance()])
     origin: tuple[float, float] | None = None   # world mm of the panel's (0, 0); None = not set yet
     rotation: float = 0.0                    # deg, panel -> world rotation
+    scale: float = 1.0                       # panel -> world scale (within 1 +/- SCALE_LIMIT), see fit_two_points
     status: dict[str, str] = field(default_factory=dict)   # placement key -> "placed" | "failed" | "skipped"
     fiducials: list[Fiducial] = field(default_factory=list)   # board coordinates, top side only
     fiducial_mode: str = "off"        # "off" | "panel" | "board"
     fiducial_diameter: float = 1.0    # copper diameter of the fiducial (mm)
     fit: dict | None = None           # last fiducial measurement, None = not measured
     board_fits: dict[int, list[float]] = field(default_factory=dict)
-        # "board" mode only: board index -> [origin_x, origin_y, rotation_deg] (board coords -> world)
+        # "board" mode only: board index -> [origin_x, origin_y, rotation_deg] or
+        # [origin_x, origin_y, rotation_deg, scale] (board coords -> world; scale defaults to 1)
     references: list[dict] = field(default_factory=list)
         # two-point alignment reference points, kept so they can be re-recorded next time:
         # [{"ref": part ref or None, "x": board mm, "y": board mm}, ...] (A then B), on board `reference_board`
     reference_board: int = 0
+    pcb_thickness: float = 1.6        # mm, used with the head's bed depth to compute place depths (0 < t <= 10)
 
 
 def placement_key(board: int, ref: str) -> str:
@@ -147,16 +156,33 @@ def _wrap(a_deg: float) -> float:
     return r
 
 
+# A scale correction is only a few tenths of a percent on a real board. The limit is far
+# beyond that, so a wrong feature or a typo is caught, and a job file with such a value
+# could not be loaded again.
+SCALE_LIMIT = 0.1
+
+
+def check_scale(scale: float) -> None:
+    """ValueError unless scale is within 1 +/- SCALE_LIMIT."""
+    if not (1.0 - SCALE_LIMIT <= scale <= 1.0 + SCALE_LIMIT):
+        raise ValueError(f"scale must be within {1.0 - SCALE_LIMIT:g}..{1.0 + SCALE_LIMIT:g}, got {scale:g}")
+
+
 def to_world(job: Job, board: int, x: float, y: float) -> tuple[float, float]:
     """Board point (mm) to world mm.
 
-    A board with a board fit (`job.board_fits`) maps directly from its board coordinates.
-    Otherwise the panel origin is used. ValueError if neither is set.
+    A board with a board fit (`job.board_fits`) maps directly from its board coordinates,
+    with the fit's scale (1 when the fit has none). Otherwise the panel origin, rotation and
+    `job.scale` are used. ValueError if neither is set.
+
+    The scale multiplies the whole panel point, board offset included, before the job
+    rotation: the offsets are measured in the same units as the board itself.
     """
     fit = job.board_fits.get(board)
     if fit is not None:
-        ox, oy, r = fit
-        wx, wy = _apply_rot(r, x, y)
+        ox, oy, r = fit[0], fit[1], fit[2]
+        s = fit[3] if len(fit) > 3 else 1.0
+        wx, wy = _apply_rot(r, s * x, s * y)
         return (wx + ox, wy + oy)
     if job.origin is None:
         raise ValueError("board origin not set")
@@ -164,6 +190,8 @@ def to_world(job: Job, board: int, x: float, y: float) -> tuple[float, float]:
     px, py = _apply_rot(b.rotation, x, y)
     px += b.x
     py += b.y
+    px *= job.scale
+    py *= job.scale
     wx, wy = _apply_rot(job.rotation, px, py)
     return (wx + job.origin[0], wy + job.origin[1])
 
@@ -187,6 +215,9 @@ def fit_two_points(a_panel: tuple[float, float], a_world: tuple[float, float],
     rotation), a_world/b_world where the camera saw them. The rotation comes from
     the direction A->B; the origin puts A exactly where it was seen. The distance
     A->B is compared as a check (a large difference = wrong feature or point).
+
+    The scale is measured A->B over board A->B, as the vendor software does. It is part of
+    the origin, so point A maps exactly, and point B maps exactly too.
     """
     dpx, dpy = b_panel[0] - a_panel[0], b_panel[1] - a_panel[1]
     dwx, dwy = b_world[0] - a_world[0], b_world[1] - a_world[1]
@@ -199,11 +230,13 @@ def fit_two_points(a_panel: tuple[float, float], a_world: tuple[float, float],
         raise ValueError(f"the recorded camera positions are only {measured_dist:.2f} mm apart; "
                          "record A and B on two different features")
     rotation = _wrap(math.degrees(math.atan2(dwy, dwx)) - math.degrees(math.atan2(dpy, dpx)))
-    rx, ry = _apply_rot(rotation, a_panel[0], a_panel[1])
+    scale = measured_dist / board_dist
+    rx, ry = _apply_rot(rotation, scale * a_panel[0], scale * a_panel[1])
     origin = (a_world[0] - rx, a_world[1] - ry)
     return {
         "origin": [origin[0], origin[1]],
         "rotation": rotation,
+        "scale": scale,
         "board_distance": board_dist,
         "measured_distance": measured_dist,
         "distance_error": measured_dist - board_dist,
@@ -280,7 +313,10 @@ def placements_outside(job: Job, x_range: tuple[float, float], y_range: tuple[fl
 
 
 def clear_fit(job: Job) -> None:
-    """Forget the fiducial measurement (the origin or rotation was changed by hand)."""
+    """Forget the fiducial measurement (the origin or rotation was changed by hand).
+
+    `job.scale` is kept: it is a separate correction, not part of the measurement.
+    """
     job.fit = None
     job.board_fits = {}
 
@@ -365,6 +401,8 @@ class PlanItem:
     body: list[float] | None = None      # (length, width) mm to check against, None = no size check
     nozzle_angle: float | None = None    # deg the nozzle turns to for the place: rotation minus the
                                          # part's rotation in the tape (the feeder's rotation); None = no feeder
+    speed: int = 100                     # % of the job speed while carrying the part (JobPart.speed)
+    height: float = 0.0                  # part height (mm) used for the place depth (JobPart.height, rule, or head default)
 
 
 def _natural_key(ref: str) -> list[Any]:
@@ -374,12 +412,34 @@ def _natural_key(ref: str) -> list[Any]:
     return [int(t) if i % 2 else t for i, t in enumerate(parts)]
 
 
-def plan(job: Job, feeders: list[Feeder], rules: PackageRules) -> list[PlanItem]:
+def part_height(part: JobPart, rules: PackageRules, head: HeadConfig | None) -> float:
+    """The height (mm) a part is held by: the part's own, else its package rule's, else head.part_height.
+
+    Without a head config the default HeadConfig.part_height is used.
+    """
+    if part.height is not None:
+        return float(part.height)
+    height_for = getattr(rules, "height_for", None)
+    rule_height = height_for(part.package) if height_for is not None else None
+    if rule_height is not None:
+        return float(rule_height)
+    if head is None:
+        from pnp.config import HeadConfig
+
+        return HeadConfig().part_height
+    return float(head.part_height)
+
+
+def plan(job: Job, feeders: list[Feeder], rules: PackageRules, *, head: HeadConfig | None = None) -> list[PlanItem]:
     """One item per (board, part), in placement order.
 
     Order: board index, nozzle, feeder id ("" for none), then natural ref order.
     Status is the job's saved status, except "skipped" for skipped parts, boards and
     bottom-side parts. Problems are only reported for items that are pending or skipped.
+
+    Place depth: the matching rule's place_depth if it has one; else, when `head` has a
+    bed depth, bed_depth - pcb_thickness - part height (the vendor software's model);
+    else None, and the runner uses head.place_depth.
     """
     items: list[tuple[tuple, PlanItem]] = []
     origin_set = job.origin is not None
@@ -391,7 +451,12 @@ def plan(job: Job, feeders: list[Feeder], rules: PackageRules) -> list[PlanItem]
         for part in job.parts:
             key = placement_key(b_index, part.ref)
             nozzle = part.nozzle if part.nozzle is not None else rules.nozzle_for(part.package)
+            height = part_height(part, rules, head)
             place_depth = rules.place_depth_for(part.package)
+            computed_depth = False
+            if place_depth is None and head is not None and head.bed_depth > 0:
+                place_depth = head.bed_depth - job.pcb_thickness - height
+                computed_depth = True
             if part.vision is not None:
                 vision = part.vision
             else:
@@ -424,6 +489,8 @@ def plan(job: Job, feeders: list[Feeder], rules: PackageRules) -> list[PlanItem]
                     problem = f"Feeder {feeder.id} is empty"
                 elif not origin_set:
                     problem = "Board origin not set"
+                elif computed_depth and place_depth is not None and place_depth <= 0:
+                    problem = "Place depth below 0: check bed depth, PCB thickness and part height"
 
             item = PlanItem(
                 key=key,
@@ -442,6 +509,8 @@ def plan(job: Job, feeders: list[Feeder], rules: PackageRules) -> list[PlanItem]
                 vision=vision,
                 body=body,
                 nozzle_angle=(rotation - feeder.rotation) if feeder is not None else None,
+                speed=part.speed,
+                height=height,
             )
             sort_key = (b_index, nozzle, feeder_id or "", _natural_key(part.ref))
             items.append((sort_key, item))
@@ -465,6 +534,7 @@ def _job_to_dict(job: Job) -> dict[str, Any]:
         "source": job.source,
         "origin": None if job.origin is None else [float(job.origin[0]), float(job.origin[1])],
         "rotation": job.rotation,
+        "scale": float(job.scale),
         "boards": [dataclasses.asdict(b) for b in job.boards],
         "parts": [dataclasses.asdict(p) for p in job.parts],
         "status": dict(job.status),
@@ -475,6 +545,7 @@ def _job_to_dict(job: Job) -> dict[str, Any]:
         "board_fits": {int(k): [float(v) for v in vals] for k, vals in job.board_fits.items()},
         "references": [dict(r) for r in job.references],
         "reference_board": int(job.reference_board),
+        "pcb_thickness": float(job.pcb_thickness),
     }
 
 
@@ -487,6 +558,7 @@ def _fiducial_from(data: Any, i: int) -> Fiducial:
 
 
 def _board_fits_from(data: Any) -> dict[int, list[float]]:
+    """Board fits as stored: [x, y, rotation] (older files) or [x, y, rotation, scale]."""
     raw = data or {}
     if not isinstance(raw, dict):
         raise ValueError("job board_fits must be a mapping")
@@ -496,11 +568,16 @@ def _board_fits_from(data: Any) -> dict[int, list[float]]:
             index = int(key)
         except (TypeError, ValueError) as exc:
             raise ValueError(f"board_fits key {key!r} is not a board index") from exc
+        what = f"board_fits[{key!r}] must be [x, y, rotation] or [x, y, rotation, scale]"
         try:
-            ox, oy, rot = vals
-            out[index] = [float(ox), float(oy), float(rot)]
+            nums = [float(v) for v in vals]
         except (TypeError, ValueError) as exc:
-            raise ValueError(f"board_fits[{key!r}] must be [x, y, rotation]") from exc
+            raise ValueError(what) from exc
+        if len(nums) not in (3, 4):
+            raise ValueError(what)
+        if len(nums) == 4:
+            check_scale(nums[3])
+        out[index] = nums
     return out
 
 
@@ -532,6 +609,12 @@ def _job_from_dict(data: Any) -> Job:
     for i, part in enumerate(parts):
         if part.vision not in (None, True, False):
             raise ValueError(f"part {i}: vision must be true, false or null, got {part.vision!r}")
+        if not 10 <= part.speed <= 100:
+            raise ValueError(f"part {i}: speed must be 10..100 %, got {part.speed!r}")
+        if part.height is not None:
+            part.height = _number(part.height, f"part {i}: height")
+            if not 0 <= part.height <= PART_HEIGHT_MAX:
+                raise ValueError(f"part {i}: height must be 0..{PART_HEIGHT_MAX:g} mm, got {part.height!r}")
     if "boards" in data:
         boards = [_build(BoardInstance, b, f"board {i}") for i, b in enumerate(data["boards"] or [])]
         if not boards:
@@ -560,6 +643,15 @@ def _job_from_dict(data: Any) -> Job:
     if fit is not None and not isinstance(fit, dict):
         raise ValueError("job fit must be a mapping")
 
+    # Files written before the scale correction have no key: 1.0 (no correction).
+    scale = 1.0 if data.get("scale") is None else _number(data["scale"], "scale")
+    check_scale(scale)
+
+    # Files written before the bed depth model have no key: 1.6 mm, a standard board.
+    pcb_thickness = 1.6 if data.get("pcb_thickness") is None else _number(data["pcb_thickness"], "pcb_thickness")
+    if not 0 < pcb_thickness <= PCB_THICKNESS_MAX:
+        raise ValueError(f"pcb_thickness must be above 0 and at most {PCB_THICKNESS_MAX:g} mm, got {pcb_thickness!r}")
+
     return Job(
         name=str(data["name"]),
         source=str(data.get("source") or ""),
@@ -567,6 +659,7 @@ def _job_from_dict(data: Any) -> Job:
         boards=boards,
         origin=origin,
         rotation=float(data.get("rotation") or 0.0),
+        scale=scale,
         status=dict(status),
         fiducials=fiducials,
         fiducial_mode=fiducial_mode,
@@ -575,7 +668,15 @@ def _job_from_dict(data: Any) -> Job:
         board_fits=_board_fits_from(data.get("board_fits")),
         references=_references_from(data.get("references")),
         reference_board=int(data.get("reference_board") or 0),
+        pcb_thickness=pcb_thickness,
     )
+
+
+def _number(value: Any, what: str) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{what} must be a number, got {value!r}") from exc
 
 
 def _references_from(data: Any) -> list[dict]:
@@ -589,6 +690,34 @@ def _references_from(data: Any) -> list[dict]:
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError(f"reference {i}: needs numeric x and y") from exc
     return out
+
+
+JOB_FILE_FORMAT = "tvm802-job"
+JOB_FILE_VERSION = 1
+
+
+def export_job_yaml(job: Job) -> str:
+    """The job as a YAML document for download: the same fields as config/job.yaml, under a header."""
+    return yaml.safe_dump({"format": JOB_FILE_FORMAT, "version": JOB_FILE_VERSION, "job": _job_to_dict(job)},
+                          sort_keys=False)
+
+
+def parse_job_yaml(text: str) -> Job:
+    """A job from an exported file. Raises ValueError naming the first problem."""
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        raise ValueError(f"not a valid YAML file: {exc}") from exc
+    if not isinstance(data, dict) or data.get("format") != JOB_FILE_FORMAT:
+        raise ValueError("not a job file exported from this app (format: tvm802-job missing)")
+    if data.get("version") != JOB_FILE_VERSION:
+        raise ValueError(f"unsupported job file version {data.get('version')!r} (expected {JOB_FILE_VERSION})")
+    if data.get("job") is None:
+        raise ValueError("job file has no job")
+    try:
+        return _job_from_dict(data["job"])
+    except (TypeError, KeyError, AttributeError) as exc:  # odd shapes the checks in _job_from_dict don't reach
+        raise ValueError(f"job file is not valid: {exc}") from exc
 
 
 class JobStore:

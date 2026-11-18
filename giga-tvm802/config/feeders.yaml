@@ -1,47 +1,1067 @@
 feeders:
 - id: L1
-  name: 100nF
+  name: L1-8mm
   kind: drag
   pick:
-  - -115.185
-  - -43.252
+  - -115.399
+  - -43.435
   direction:
   - 1.0
   - 0.0
   pitch: 4.0
-  count: 24
-  capacity: null
-  rotation: 90.0
-  pick_depth: 8.0
-  prick:
-  - -105.218
-  - -39.777
-  needs_feed: true
-  enabled: true
-  value: 100nF
-  package: ''
-  bank: ''
-  lane: null
-- id: L26
-  name: ESP
-  kind: drag
-  pick:
-  - -117.167
-  - 296.818
-  direction:
-  - 1.0
-  - 0.0
-  pitch: 16.0
-  count: 6
+  count: 0
   capacity: null
   rotation: 0.0
   pick_depth: 7.5
   prick:
-  - -107.352
+  - -105.432
+  - -39.777
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: L2
+  name: L2-8mm
+  kind: drag
+  pick:
+  - -115.399
+  - -30.297
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - -105.462
+  - -26.914
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: L3
+  name: L3-8mm
+  kind: drag
+  pick:
+  - -115.399
+  - -17.313
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - -105.401
+  - -13.93
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: L4
+  name: L4
+  kind: drag
+  pick:
+  - -115.4
+  - -4.359
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - -105.4011216776396
+  - -0.7620092660326749
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: L5
+  name: L5
+  kind: drag
+  pick:
+  - -115.399
+  - 8.595
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - -105.4011216776396
+  - 12.039746403316265
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: L6
+  name: L6
+  kind: drag
+  pick:
+  - -115.3986832479883
+  - 21.854425749817118
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - -105.4011216776396
+  - 25.115825408436965
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: L7
+  name: L7
+  kind: drag
+  pick:
+  - -115.3986832479883
+  - 34.65618141916606
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - -105.4011216776396
+  - 38.009022189709825
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: L8
+  name: L8
+  kind: drag
+  pick:
+  - -115.3986832479883
+  - 47.549378200438916
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - -105.4011216776396
+  - 51.08510119483053
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: L9
+  name: L9
+  kind: drag
+  pick:
+  - -115.3986832479883
+  - 60.44257498171178
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - -105.4011216776396
+  - 63.73445501097294
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: L10
+  name: L10
+  kind: drag
+  pick:
+  - -115.399
+  - 73.244
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - -105.4011216776396
+  - 76.90197512801755
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: L11
+  name: L11
+  kind: drag
+  pick:
+  - -115.399
+  - 86.503
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - -105.4011216776396
+  - 90.00853450377957
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: L12
+  name: L12
+  kind: drag
+  pick:
+  - -115.399
+  - 99.579
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - -105.4011216776396
+  - 102.81029017312851
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: L13
+  name: L13
+  kind: drag
+  pick:
+  - -115.399
+  - 112.381
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - -105.4011216776396
+  - 115.88636917824921
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: L14
+  name: L14
+  kind: drag
+  pick:
+  - -115.3986832479883
+  - 125.57912704218484
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - -105.4011216776396
+  - 128.77956595952207
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: L15
+  name: L15
+  kind: drag
+  pick:
+  - -115.3986832479883
+  - 138.62472567666424
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - -105.4011216776396
+  - 141.67276274079492
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: L16
+  name: L16
+  kind: drag
+  pick:
+  - -115.3986832479883
+  - 151.5179224579371
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - -105.4011216776396
+  - 154.5659595220678
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: L17
+  name: L17
+  kind: drag
+  pick:
+  - -115.3986832479883
+  - 164.13679590343818
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - -105.4011216776396
+  - 167.6420385271885
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: L18
+  name: L18
+  kind: drag
+  pick:
+  - -115.3986832479883
+  - 177.12143379663496
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - -105.4011216776396
+  - 180.53523530846135
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: L19
+  name: L19
+  kind: drag
+  pick:
+  - -115.3986832479883
+  - 190.19751280175566
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - -105.4011216776396
+  - 193.4284320897342
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: L20
+  name: L20
+  kind: drag
+  pick:
+  - -115.3986832479883
+  - 203.18215069495244
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - -105.4011216776396
+  - 206.5045110948549
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: L21
+  name: L21
+  kind: drag
+  pick:
+  - -115.3986832479883
+  - 216.25822970007314
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - -105.4011216776396
+  - 219.5805900999756
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: L22
+  name: L22
+  kind: drag
+  pick:
+  - -115.3986832479883
+  - 229.15142648134602
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - -105.4011216776396
+  - 232.56522799317239
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: L23
+  name: L23
+  kind: drag
+  pick:
+  - -116.405
+  - 244.239
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 12.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - -105.401
+  - 249.665
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: L24
+  name: L24
+  kind: drag
+  pick:
+  - -116.405
+  - 260.973
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 12.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - -105.401
+  - 266.673
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: L25
+  name: L25-12mm
+  kind: drag
+  pick:
+  - -116.40453547915142
+  - 278.0724213606438
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 12.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - -107.139
+  - 283.406
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: L26
+  name: L26-16mm
+  kind: drag
+  pick:
+  - -117.685
+  - 296.726
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 12.0
+  count: 2
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - -108.022
   - 304.225
   needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
   enabled: true
-  value: ESP32-S3FN8
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: B1
+  name: B1-8mm
+  kind: drag
+  pick:
+  - -15.941
+  - 296.757
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - -12.436
+  - 294.715
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: B2
+  name: B2-8mm
+  kind: drag
+  pick:
+  - -3.962
+  - 296.757
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - -0.549
+  - 294.715
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: B3
+  name: B3-12mm
+  kind: drag
+  pick:
+  - 10.028
+  - 297.397
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - 15.515
+  - 295.233
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: B4
+  name: B4-12mm
+  kind: drag
+  pick:
+  - 25.938795415752256
+  - 297.3969763472324
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - 31.333821019263596
+  - 295.2328700316996
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: B5
+  name: B5-16mm
+  kind: drag
+  pick:
+  - 43.678
+  - 293.861
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - 51.207
+  - 295.842
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: B6
+  name: B6-16mm
+  kind: drag
+  pick:
+  - 63.704
+  - 293.861
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - 71.172
+  - 295.842
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: B7
+  name: B7-16mm
+  kind: drag
+  pick:
+  - 83.547
+  - 293.861
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - 90.923
+  - 295.842
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: B8
+  name: B8-8mm
+  kind: drag
+  pick:
+  - 123.7198244330651
+  - 295.84247744452574
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - 127.2250670568154
+  - 293.9222140941234
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: B9
+  name: B9-8mm
+  kind: drag
+  pick:
+  - 135.607
+  - 295.842
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - 139.112
+  - 293.922
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: B10
+  name: B10-8mm
+  kind: drag
+  pick:
+  - 147.52499390392586
+  - 295.84247744452574
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - 150.99975615703488
+  - 293.9222140941234
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: B11
+  name: B11-8mm
+  kind: drag
+  pick:
+  - 159.50377956595952
+  - 295.84247744452574
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - 162.9785418190685
+  - 293.9222140941234
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: B12
+  name: B12-8mm
+  kind: drag
+  pick:
+  - 171.39112411606925
+  - 295.84247744452574
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - 174.86588636917824
+  - 293.9222140941234
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: B13
+  name: B13-12mm
+  kind: drag
+  pick:
+  - 185.29017312850524
+  - 292.00195074372107
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - 190.95952206778836
+  - 293.9222140941234
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: B14
+  name: B14-12mm
+  kind: drag
+  pick:
+  - 201.2923677151914
+  - 292.00195074372107
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - 206.8702755425506
+  - 293.9222140941234
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
+  package: ''
+  bank: ''
+  lane: null
+- id: B15
+  name: B15-16mm
+  kind: drag
+  pick:
+  - 219.398
+  - 289.35
+  direction:
+  - 1.0
+  - 0.0
+  pitch: 4.0
+  count: 0
+  capacity: null
+  rotation: 0.0
+  pick_depth: 7.5
+  prick:
+  - 226.80443794196538
+  - 295.3852718849061
+  needs_feed: true
+  tray_end: null
+  tray_cols: 1
+  tray_rows: 1
+  enabled: true
+  value: ''
   package: ''
   bank: ''
   lane: null

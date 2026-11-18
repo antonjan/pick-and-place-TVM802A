@@ -12,7 +12,7 @@ import logging
 from collections.abc import Awaitable, Callable
 
 from pnp.job.align import AlignError
-from pnp.job.feeders import FeederError, FeederStore
+from pnp.job.feeders import Feeder, FeederError, FeederStore
 from pnp.job.head_ops import HeadOps, PickError
 from pnp.job.job import JobStore, PlanItem, plan
 from pnp.job.rules import PackageRules
@@ -80,7 +80,7 @@ class JobRunner:
         job = self.jobs.load()
         if job is None:
             return []
-        return plan(job, self.feeders.all(), self.rules)
+        return plan(job, self.feeders.all(), self.rules, head=self.head.cfg)
 
     def status(self) -> dict:
         """State plus counts over the plan. total = every item that is not skipped."""
@@ -146,7 +146,7 @@ class JobRunner:
             raise JobError("The machine isn't homed. Home it, then start the job.")
         if job.origin is None:
             raise JobError("Board origin not set: set it from the camera first.")
-        pending = [item for item in plan(job, self.feeders.all(), self.rules) if item.status == "pending"]
+        pending = [item for item in plan(job, self.feeders.all(), self.rules, head=self.head.cfg) if item.status == "pending"]
         if not pending:
             raise JobError("Nothing left to place.")
         if pending[0].problem is not None:
@@ -209,6 +209,10 @@ class JobRunner:
         self._task = asyncio.create_task(self._step_once(), name="job-step")
 
     async def _step_once(self) -> None:
+        with self._job_speed():
+            await self._step_once_at_speed()
+
+    async def _step_once_at_speed(self) -> None:
         try:
             if not self._stages and not await self._next_part():
                 return
@@ -223,7 +227,7 @@ class JobRunner:
                 self._stages, self._stage_i, self._item = [], 0, None
                 self.current = None
                 job = self.jobs.load()
-                if job is not None and not any(i.status == "pending" for i in plan(job, self.feeders.all(), self.rules)):
+                if job is not None and not any(i.status == "pending" for i in plan(job, self.feeders.all(), self.rules, head=self.head.cfg)):
                     self.state = "done" if self.state == "stepping" else self.state
         except PickError as exc:
             # Bottom vision rejected the part (it was discarded): this part starts again.
@@ -259,7 +263,7 @@ class JobRunner:
             self.current = None
         if not self.machine.homed:
             raise JobError("The machine isn't homed. Home it, then press Step.")
-        pending = [i for i in plan(self.jobs.load() or job, self.feeders.all(), self.rules) if i.status == "pending"]
+        pending = [i for i in plan(self.jobs.load() or job, self.feeders.all(), self.rules, head=self.head.cfg) if i.status == "pending"]
         if not pending:
             self.state = "done"
             self.current = None
@@ -280,6 +284,11 @@ class JobRunner:
     async def _run_stage(self, stage: str, item: PlanItem) -> None:
         feeder = self.feeders.get(item.feeder or "")
         h, n = self.head, item.nozzle
+        carrying = stage in ("place_move", "inspect", "align_move", "place")
+        with h.carrying(item.speed if carrying else 100):
+            await self._run_stage_at_speed(stage, item, feeder, h, n)
+
+    async def _run_stage_at_speed(self, stage: str, item: PlanItem, feeder, h, n) -> None:
         async with h.exclusive(f"step: {STAGE_LABELS[stage]}"):
             if stage == "feed_move":
                 await h.feed_move(feeder)
@@ -350,9 +359,18 @@ class JobRunner:
 
     # ------------------------------------------------------------------ loop
 
+    def _job_speed(self):
+        """Moves of the job (in this task) run at the job speed level from the config."""
+        level = getattr(getattr(self.machine, "cfg", None), "motion", None)
+        speed = getattr(self.machine, "speed", None)
+        if level is None or speed is None:
+            return contextlib.nullcontext()
+        return speed(level=level.job_speed_level, percent=100)
+
     async def _run(self) -> None:
         try:
-            await self._loop()
+            with self._job_speed():
+                await self._loop()
             if self.state in ("idle", "done"):
                 await self._pump_off()
         except asyncio.CancelledError:
@@ -392,7 +410,7 @@ class JobRunner:
             if job is None:
                 self._error("The job file is gone.")
                 return
-            items = plan(job, self.feeders.all(), self.rules)
+            items = plan(job, self.feeders.all(), self.rules, head=self.head.cfg)
             pending = [item for item in items if item.status == "pending"]
             if not pending:
                 self.state = "done"
@@ -408,7 +426,14 @@ class JobRunner:
             if not self.machine.homed:
                 self._error("The machine isn't homed. Home it, then resume.")
                 return
-            if not await self._place_item(item):
+            # Dual pick: the first later part for the other nozzle is picked in the same trip.
+            partner = None
+            if self.head.cfg.dual_pick:
+                partner = next((i for i in pending if i.nozzle != item.nozzle and i.problem is None), None)
+            if partner is not None:
+                if not await self._place_pair(item, partner):
+                    return
+            elif not await self._place_item(item):
                 return
 
     async def _place_item(self, item: PlanItem) -> bool:
@@ -424,7 +449,8 @@ class JobRunner:
         for attempt in range(1, attempts + 1):
             try:
                 await self.head.pick_and_place(item.nozzle, feeder, (item.x, item.y), item.rotation,
-                                               item.place_depth, vision=item.vision, body=item.body)
+                                               item.place_depth, vision=item.vision, body=item.body,
+                                               speed=item.speed)
                 break
             except PickError:
                 if attempt < attempts:
@@ -448,6 +474,81 @@ class JobRunner:
         self._set_status(item.key, "placed")
         self.current = None
         return True
+
+    async def _place_pair(self, a: PlanItem, b: PlanItem) -> bool:
+        """Dual pick: pick a and b with their nozzles while the head is held, then place both.
+        Parts are placed in plan order (a, b). False when the loop must stop (state already set)."""
+        try:
+            feeder_a = self.feeders.get(a.feeder or "")
+            feeder_b = self.feeders.get(b.feeder or "")
+        except FeederError as exc:
+            self._halt(str(exc))
+            return False
+
+        acquired: list[tuple[PlanItem, Feeder]] = []
+        failed: list[tuple[PlanItem, Feeder]] = []
+        halt: str | None = None  # the message when the pair stops the job
+        try:
+            async with self.head.exclusive("picking two parts"):
+                for item, feeder in ((a, feeder_a), (b, feeder_b)):
+                    self.current = item.key
+                    try:
+                        outcome = await self._acquire(item, feeder)
+                    except FeederError as exc:
+                        # Nothing more to pick: place what is already held, then stop.
+                        halt = str(exc)
+                        break
+                    (acquired if outcome == "ok" else failed).append((item, feeder))
+
+                for item, _ in acquired:
+                    self.current = item.key
+                    with self.head.carrying(item.speed):
+                        await self.head.place_move(item.nozzle, (item.x, item.y), item.rotation)
+                        await self.head.place_release(item.nozzle, item.place_depth)
+                    self._set_status(item.key, "placed")
+        except MachineError as exc:
+            # A part may still be on a nozzle: it stays marked as held (Reset nozzles clears it).
+            self._error(str(exc))
+            return False
+
+        if failed:
+            item, feeder = failed[0]
+            halt = (f"Couldn't pick {item.ref} from {feeder.id} after {self.pick_retries + 1} tries. "
+                    "Check the lane, then resume or skip it.")
+        self.current = None
+        if halt is not None:
+            self._halt(halt)
+            return False
+        return True
+
+    async def _acquire(self, item: PlanItem, feeder: Feeder) -> str:
+        """Pick one part with its nozzle, with the same retries as _place_item. The head lock
+        must be held. Returns "ok", or "failed" after the last attempt (status set to failed)."""
+        h, n = self.head, item.nozzle
+        attempts = self.pick_retries + 1
+        for attempt in range(1, attempts + 1):
+            try:
+                h.check_pick(n, feeder)
+                if feeder.kind == "drag" and feeder.needs_feed:
+                    await h.feed_move(feeder)
+                    await h.feed_drag(feeder)
+                    await h.feed_up(feeder)
+                await h.pick_move(n, feeder)
+                await h.pick_down(n, feeder)
+                await h.pick_up(n, feeder)
+                with h.carrying(item.speed):
+                    await h.inspect_pick(n, feeder, vision=item.vision, body=item.body)
+                return "ok"
+            except PickError:
+                if attempt == attempts:
+                    break
+                log.info("pick of %s from %s failed (attempt %d of %d): retrying",
+                         item.ref, feeder.id, attempt, attempts)
+                if feeder.kind == "drag":
+                    feeder.needs_feed = True  # the pocket was probably empty: feed before the retry
+                    self.feeders.save()
+        self._set_status(item.key, "failed")
+        return "failed"
 
     # ------------------------------------------------------------------ helpers
 

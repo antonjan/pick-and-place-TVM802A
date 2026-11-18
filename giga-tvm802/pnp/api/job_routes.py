@@ -3,17 +3,22 @@
 from __future__ import annotations
 
 import dataclasses
+import datetime as _dt
 import logging
 import math
+import re
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from pnp.api.errors import call as _call
 from pnp.api.errors import status_for
 from pnp.job.align import AlignError, measure_fiducials
 from pnp.job.job import (
+    PART_HEIGHT_MAX,
+    PCB_THICKNESS_MAX,
     BoardInstance,
     Fiducial,
     Job,
@@ -21,9 +26,11 @@ from pnp.job.job import (
     JobStore,
     PlanItem,
     clear_fit,
+    export_job_yaml,
     fit_rotation,
     grid,
     job_from_pos,
+    parse_job_yaml,
     plan,
     to_world,
 )
@@ -41,6 +48,7 @@ class RuleIn(BaseModel):
     pattern: str
     nozzle: int = 2
     place_depth: float | None = None
+    height: float | None = None  # part height (mm) for this package; None = head.part_height
     note: str = ""
     body: list[float] | None = None  # (length, width) mm seen from below; None = no size check
     vision: bool = True
@@ -55,6 +63,11 @@ class ImportIn(BaseModel):
     name: str = ""
     filename: str = ""
     text: str
+
+
+class JobFileIn(BaseModel):
+    text: str                        # the exported job file's text
+    reset_statuses: bool = True      # True: every part back to "to do"
 
 
 class BoardSettingsIn(BaseModel):
@@ -89,6 +102,13 @@ class PartIn(BaseModel):
     x: float | None = None
     y: float | None = None
     rotation: float | None = None
+    speed: int | None = None     # % of the job speed while carrying the part (10..100); None = unchanged
+    height: float | None = None  # part height (mm, 0..30); None = unchanged
+    height_auto: bool = False    # True = use the package rule's height (or head.part_height) again
+
+
+class PcbThicknessIn(BaseModel):
+    pcb_thickness: float         # mm, 0 < t <= PCB_THICKNESS_MAX
 
 
 class PartsEnableIn(BaseModel):
@@ -144,6 +164,7 @@ def _job_dict(job: Job) -> dict:
         "source": job.source,
         "origin": None if job.origin is None else [job.origin[0], job.origin[1]],
         "rotation": job.rotation,
+        "scale": job.scale,
         "boards": [dataclasses.asdict(b) for b in job.boards],
         "parts": [dataclasses.asdict(p) for p in job.parts],
         "status": dict(job.status),
@@ -154,6 +175,7 @@ def _job_dict(job: Job) -> dict:
         "board_fits": {str(k): [float(v) for v in vals] for k, vals in job.board_fits.items()},
         "references": [dict(r) for r in job.references],
         "reference_board": int(job.reference_board),
+        "pcb_thickness": float(job.pcb_thickness),
     }
 
 
@@ -223,7 +245,7 @@ def add_job_routes(app: FastAPI, machine, job_path: Path, rules_path: Path) -> N
             raise HTTPException(409, "board origin not set")
 
     def items_of(job: Job) -> list[PlanItem]:
-        return plan(job, feeders.all(), rules)
+        return plan(job, feeders.all(), rules, head=machine.cfg.head)
 
     def state_json() -> dict:
         job = jobs.load()
@@ -288,6 +310,30 @@ def add_job_routes(app: FastAPI, machine, job_path: Path, rules_path: Path) -> N
         jobs.save(job_from_pos(name, body.filename, parts))
         return state_json()
 
+    @app.get("/api/job/export")
+    async def export_job():
+        """Download the current job as one YAML file (import it again with /api/job/import-file)."""
+        job = need_job()
+        safe = re.sub(r"[^A-Za-z0-9_-]+", "-", job.name).strip("-") or "job"
+        name = f"job-{safe}-{_dt.datetime.now().strftime('%Y-%m-%d-%H%M')}.yaml"
+        return Response(export_job_yaml(job), media_type="application/x-yaml",
+                        headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+    @app.post("/api/job/import-file")
+    async def import_job_file(body: JobFileIn):
+        """Load an exported job file. Parts and edits are kept; the fiducial measurement is
+        forgotten (it belongs to the board that was on the machine then)."""
+        running()
+        try:
+            job = parse_job_yaml(body.text)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        if body.reset_statuses:
+            job.status = {}
+        clear_fit(job)
+        jobs.save(job)
+        return state_json()
+
     @app.delete("/api/job")
     async def delete_job():
         running()
@@ -322,7 +368,7 @@ def add_job_routes(app: FastAPI, machine, job_path: Path, rules_path: Path) -> N
     @app.post("/api/job/align/two-points")
     async def align_two_points(body: TwoPointIn):
         """Board origin AND rotation from two reference points recorded with the camera."""
-        from pnp.job.job import (check_distances, check_reference_point, fit_two_points,
+        from pnp.job.job import (check_distances, check_reference_point, check_scale, fit_two_points,
                                  placements_outside)
 
         idle()
@@ -338,15 +384,17 @@ def add_job_routes(app: FastAPI, machine, job_path: Path, rules_path: Path) -> N
             result = fit_two_points(a_panel, (body.a.world_x, body.a.world_y),
                                     b_panel, (body.b.world_x, body.b.world_y))
             check_distances(result)
+            check_scale(result["scale"])  # the distance check alone allows more on a short A-B
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
-        old = (job.origin, job.rotation)
+        old = (job.origin, job.rotation, job.scale)
         job.origin = (result["origin"][0], result["origin"][1])
         job.rotation = result["rotation"]
+        job.scale = result["scale"]
         lim = machine.cfg.limits
         outside = placements_outside(job, lim.x, lim.y)
         if outside:
-            job.origin, job.rotation = old  # not saved: keep the previous board position
+            job.origin, job.rotation, job.scale = old  # not saved: keep the previous board position
             first = ", ".join(f"{r} at X {x:.1f}, Y {y:.1f}" for r, x, y in outside[:3])
             raise HTTPException(400, f"with these points {len(outside)} part(s) would land outside the machine "
                                      f"({first}). Check both points' board X/Y and their camera captures.")
@@ -408,12 +456,34 @@ def add_job_routes(app: FastAPI, machine, job_path: Path, rules_path: Path) -> N
         part.nozzle = body.nozzle
         part.feeder = body.feeder or None
         part.vision = body.vision
+        if body.speed is not None:
+            if not 10 <= body.speed <= 100:
+                raise HTTPException(400, "speed must be 10..100 %")
+            part.speed = int(body.speed)
+        if body.height_auto:
+            part.height = None
+        elif body.height is not None:
+            if not math.isfinite(body.height) or not 0 <= body.height <= PART_HEIGHT_MAX:
+                raise HTTPException(400, f"height must be 0..{PART_HEIGHT_MAX:g} mm")
+            part.height = float(body.height)
         for name in ("x", "y", "rotation"):
             value = getattr(body, name)
             if value is not None:
                 if not math.isfinite(value):
                     raise HTTPException(400, f"{name} must be a number")
                 setattr(part, name, float(value) % 360.0 if name == "rotation" else float(value))
+        jobs.save(job)
+        return state_json()
+
+    @app.put("/api/job/pcb-thickness")
+    async def put_pcb_thickness(body: PcbThicknessIn):
+        """Board thickness for the place depth model (bed depth - thickness - part height)."""
+        running()
+        job = need_job()
+        t = body.pcb_thickness
+        if not math.isfinite(t) or not 0 < t <= PCB_THICKNESS_MAX:
+            raise HTTPException(400, f"PCB thickness must be above 0 and at most {PCB_THICKNESS_MAX:g} mm")
+        job.pcb_thickness = float(t)
         jobs.save(job)
         return state_json()
 

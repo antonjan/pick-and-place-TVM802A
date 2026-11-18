@@ -157,11 +157,19 @@ class HeadOps:
             await self._discard(nozzle)
 
     async def pick_and_place(self, nozzle: int, feeder: Feeder, W, rotation: float = 0.0,
-                             depth: float | None = None, *, vision: bool = True, body=None) -> None:
+                             depth: float | None = None, *, vision: bool = True, body=None,
+                             speed: int = 100) -> None:
+        """speed: % of the current speed for the moves that carry the part (vendor "Speed")."""
         async with self._exclusive("picking"):
-            await self._pick(nozzle, feeder, vision=vision, body=body)
+            await self._pick(nozzle, feeder, vision=vision, body=body, carry_speed=speed)
             self.busy = "placing"
-            await self._place(nozzle, W, rotation, depth)
+            with self.carrying(speed):
+                await self._place(nozzle, W, rotation, depth)
+
+    def carrying(self, percent: int):
+        """Moves with a part on the nozzle run at `percent` of the current speed."""
+        speed = getattr(self.machine, "speed", None)
+        return speed(percent=percent) if speed is not None and percent != 100 else contextlib.nullcontext()
 
     async def reset_nozzles(self, nozzles: tuple[int, ...] = (1, 2)) -> None:
         """Forget what the nozzles hold: vacuum off, nozzles up, holding cleared.
@@ -245,14 +253,16 @@ class HeadOps:
         feeder.after_feed()
         self.feeders.save()
 
-    async def _pick(self, nozzle: int, feeder: Feeder, *, vision: bool = True, body=None) -> None:
+    async def _pick(self, nozzle: int, feeder: Feeder, *, vision: bool = True, body=None,
+                    carry_speed: int = 100) -> None:
         self.check_pick(nozzle, feeder)
         if feeder.kind == "drag" and feeder.needs_feed:
             await self._feed(feeder)
         await self.pick_move(nozzle, feeder)
         await self.pick_down(nozzle, feeder)
         await self.pick_up(nozzle, feeder)
-        await self._inspect_pick(nozzle, feeder, vision=vision, body=body)
+        with self.carrying(carry_speed):
+            await self._inspect_pick(nozzle, feeder, vision=vision, body=body)
 
     def check_pick(self, nozzle: int, feeder: Feeder) -> None:
         if self.holding.get(nozzle):

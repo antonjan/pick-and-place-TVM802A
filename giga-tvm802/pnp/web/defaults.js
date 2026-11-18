@@ -211,3 +211,10 @@ function initDefaults() {
 }
 
 initDefaults();
+
+// Last script to load: open the tab used last time (default Job; the Machine tab moved to the top bar).
+(() => {
+  let tab = "job";
+  try { tab = localStorage.getItem("tab") || "job"; } catch (_) { /* storage blocked */ }
+  showTab(tab);
+})();

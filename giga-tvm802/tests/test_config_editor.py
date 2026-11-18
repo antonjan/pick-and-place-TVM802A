@@ -37,6 +37,8 @@ def test_describe_lists_values_and_defaults(tmp_path):
     assert x["value"] == [-120.0, 299.0] and x["default"] == [0.0, 299.0] and x["type"] == "pair"
     assert field(d, "head", "pick_depth")["value"] == 3.0
     assert field(d, "head", "discard")["type"] == "optional_pair"
+    assert field(d, "head", "bed_depth")["default"] == 0.0 and field(d, "head", "bed_depth")["unit"] == "mm"
+    assert field(d, "head", "part_height")["default"] == 0.5 and not field(d, "head", "bed_depth")["advanced"]
     assert field(d, "head", "check_vacuum")["type"] == "bool"
     assert field(d, "steps", "x")["advanced"] and not field(d, "head", "place_depth")["advanced"]
     assert field(d, "motion", "step_quantum")["advanced"] and not field(d, "motion", "xy_speed")["advanced"]
@@ -62,6 +64,9 @@ def test_describe_lists_values_and_defaults(tmp_path):
     ({"vision": {"min_brightness": 300}}, "0–255"),
     ({"controller": {"host": " "}}, "empty"),
     ({"head": {"pick_depth": "abc"}}, "abc"),
+    ({"head": {"bed_depth": -1}}, "can't be negative"),
+    ({"head": {"part_height": -0.5}}, "can't be negative"),
+    ({"head": {"bed_depth": 12}}, "deeper"),
 ])
 def test_validate_rejects(changes, msg):
     with pytest.raises(ValueError, match=msg):
@@ -147,3 +152,16 @@ def test_api_get_and_put_defaults(tmp_path):
         assert r.status_code == 400 and "min must be below max" in r.json()["detail"]
         assert machine.cfg.limits.x == (-120.0, 299.0)
         assert c.put("/api/config/defaults", json={"oops": 1}).status_code == 400
+
+
+def test_bed_depth_and_part_height_save_and_apply(tmp_path):
+    cfg = MachineConfig()
+    new = validate(cfg, {"head": {"bed_depth": 7.5, "part_height": 0.7}})
+    assert new.head.bed_depth == 7.5 and new.head.part_height == 0.7
+    p = tmp_path / "machine.yaml"
+    p.write_text("head:\n  place_depth: 3.0\n")
+    assert save(p, cfg, new) == ["head.bed_depth", "head.part_height"]
+    loaded = load_config(p)
+    assert loaded.head.bed_depth == 7.5 and loaded.head.part_height == 0.7
+    apply_live(cfg, new)
+    assert cfg.head.bed_depth == 7.5

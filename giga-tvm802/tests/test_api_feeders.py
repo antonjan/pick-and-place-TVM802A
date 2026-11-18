@@ -126,6 +126,13 @@ def test_teach_needs_homing_then_records_camera_position(env):
     assert c.post("/api/feeders/F1/goto").status_code == 200
     assert close(head(env), (60.0, 40.0))
 
+    # Feeders tab "Camera to Prick": the camera over the needle point (F2 taught at 56, 84).
+    assert c.post("/api/feeders/F2/goto-prick").status_code == 200
+    assert close(head(env), (56.0, 84.0))
+    r = c.post("/api/feeders/F1/goto-prick")  # a strip feeder has no needle point
+    assert r.status_code == 409 and "no prick position" in r.json()["detail"]
+    assert c.post("/api/feeders/F1/goto").status_code == 200  # back for the pick tests
+
 
 def test_pick_hold_place_and_release(env):
     c = env.client
@@ -292,3 +299,44 @@ def test_export_and_import_endpoints(tmp_path):
 
         r = c.post("/api/feeders/import", json={"content": "not: a feeder file"})
         assert r.status_code == 400 and "not a feeder configuration" in r.json()["detail"]
+
+
+def test_tray_feeder_teach_end_then_pick_row_by_row(env):
+    """Tray FT (3 columns x 2 rows, first part (100, 60), last part (108, 68)): picks go row by row."""
+    c = env.client
+    assert c.post("/api/home").status_code == 200
+    base = {"name": "QFN tray", "kind": "tray", "pick": [100, 60], "tray_cols": 3, "tray_rows": 2,
+            "pick_depth": 3.0}
+    # A grid needs its last part: refused without tray_end.
+    assert c.put("/api/feeders/FT", json=base).status_code == 400
+    r = c.put("/api/feeders/FT", json={**base, "tray_end": [100, 60]})  # placeholder until taught below
+    assert r.status_code == 200, r.text
+    assert r.json()["tray_size"] == [3, 2] and r.json()["capacity"] == 6 and r.json()["remaining"] == 6
+
+    assert c.post("/api/feeders/F1/teach/tray-end").status_code == 409  # strip feeders have no tray end
+    move_head(env, 108.0, 68.0)
+    r = c.post("/api/feeders/FT/teach/tray-end")
+    assert r.status_code == 200, r.text
+    assert close(feeder(env, "FT")["tray_end"], (108.0, 68.0))
+
+    move_head(env, 100.0, 60.0)
+    assert c.post("/api/feeders/FT/teach/pick").status_code == 200
+    assert feeder(env, "FT")["count"] == 0
+
+    # The first pick is the first part; the head is over it with the nozzle offset applied.
+    assert c.post("/api/feeders/FT/pick", json={"nozzle": 1}).status_code == 200
+    x, y = head(env)
+    assert close((x + T1[0], y + T1[1]), (100.0, 60.0))
+    got = feeder(env, "FT")
+    assert got["count"] == 1 and got["remaining"] == 5
+    assert close(got["pick_location"], (104.0, 60.0))  # next part: next column of the same row
+
+    assert c.post("/api/head/place", json={"nozzle": 1, "x": 120.0, "y": 90.0}).status_code == 200
+
+    # The second pick goes to the second grid position.
+    assert c.post("/api/feeders/FT/pick", json={"nozzle": 1}).status_code == 200
+    x, y = head(env)
+    assert close((x + T1[0], y + T1[1]), (104.0, 60.0))
+    assert feeder(env, "FT")["count"] == 2
+    assert c.post("/api/feeders/FT/feed").status_code == 409  # a tray never needs a feed
+    assert c.post("/api/head/discard", json={"nozzle": 1}).status_code == 200

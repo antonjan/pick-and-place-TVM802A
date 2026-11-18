@@ -235,3 +235,87 @@ def test_delete_bank_keeps_other_feeders(tmp_path):
     store.upsert(drag("b-1", bank="b", lane=1))
     store.delete_bank("b")
     assert [f.id for f in FeederStore(path).all()] == ["loose"]
+
+
+def tray(cols=3, rows=2, end=(120.0, 70.0), **kw) -> Feeder:
+    base = dict(id="T1", kind="tray", pick=(100.0, 50.0), tray_end=end, tray_cols=cols, tray_rows=rows)
+    base.update(kw)
+    return Feeder(**base)
+
+
+def test_tray_pick_location_goes_row_by_row():
+    # 3 columns x 2 rows: pick is the first part, tray_end the last (opposite corner).
+    f = tray()
+    spots = []
+    for _ in range(6):
+        spots.append(f.pick_location())
+        f.after_pick()
+    assert spots == [(100.0, 50.0), (110.0, 50.0), (120.0, 50.0),
+                     (100.0, 70.0), (110.0, 70.0), (120.0, 70.0)]
+    assert f.count == 6
+
+
+def test_tray_single_row_and_single_column():
+    row = tray(cols=4, rows=1, end=(130.0, 50.0))
+    assert row.pick_location() == pytest.approx((100.0, 50.0))
+    row.count = 3
+    assert row.pick_location() == pytest.approx((130.0, 50.0))  # rows == 1: y stays on the first line
+    col = tray(cols=1, rows=3, end=(100.0, 90.0))
+    col.count = 2
+    assert col.pick_location() == pytest.approx((100.0, 90.0))  # cols == 1: x stays on the first line
+    single = tray(cols=1, rows=1, end=None)
+    assert single.pick_location() == (100.0, 50.0)
+
+
+def test_tray_does_not_need_feed_and_counts_remaining():
+    f = tray()
+    assert f.remaining() == 6
+    f.after_pick()
+    assert f.remaining() == 5 and f.needs_feed is True and f.kind == "tray"
+    for _ in range(5):
+        f.after_pick()
+    assert f.remaining() == 0
+    f.after_pick()
+    assert f.remaining() == 0  # never negative
+    assert f.tray_capacity() == 6
+
+
+def test_tray_validation():
+    with pytest.raises(ValueError, match="tray_end"):
+        tray(cols=2, rows=2, end=None).validate()
+    with pytest.raises(ValueError, match="tray_cols"):
+        tray(cols=0).validate()
+    with pytest.raises(ValueError, match="tray_rows"):
+        tray(rows=101).validate()
+    tray(cols=1, rows=1, end=None).validate()  # one part needs no end position
+    tray(cols=100, rows=100).validate()
+    with pytest.raises(ValueError, match="kind"):
+        Feeder(id="X", kind="tary").validate()
+
+
+def test_tray_end_normalised_on_load():
+    f = tray(end=[120, 70])
+    assert f.tray_end == (120.0, 70.0) and isinstance(f.tray_end, tuple)
+
+
+def test_tray_round_trip(tmp_path):
+    path = tmp_path / "f.yaml"
+    FeederStore(path).upsert(tray(count=4, value="QFN"))
+    again = FeederStore(path).get("T1")
+    assert again.tray_end == (120.0, 70.0) and isinstance(again.tray_end, tuple)
+    assert (again.tray_cols, again.tray_rows, again.count) == (3, 2, 4)
+    assert again.remaining() == 2 and again.value == "QFN"
+    raw = yaml.safe_load(path.read_text())["feeders"][0]
+    assert raw["tray_end"] == [120.0, 70.0] and raw["tray_cols"] == 3 and raw["tray_rows"] == 2
+
+
+def test_old_feeder_dicts_load_without_tray_fields(tmp_path):
+    path = tmp_path / "f.yaml"
+    path.write_text("feeders:\n"
+                    "  - id: S1\n    kind: strip\n    pick: [1, 2]\n    capacity: 5\n"
+                    "  - id: D1\n    kind: drag\n    pick: [3, 4]\n    prick: [1, 1]\n")
+    store = FeederStore(path)
+    s1, d1 = store.get("S1"), store.get("D1")
+    assert s1.tray_end is None and s1.tray_cols == 1 and s1.tray_rows == 1
+    assert d1.tray_end is None and d1.remaining() is None
+    assert s1.remaining() == 5

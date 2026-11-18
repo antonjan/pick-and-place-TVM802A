@@ -158,7 +158,7 @@ The simulator keeps its data in temporary files. Your files in `config/` do not 
 
 5. Open `http://127.0.0.1:8080` in a browser.
 6. Make sure that the status at the top shows **Connected**. If it does not, click **Connect** (see [9.1](#91-the-machine-is-not-connected)).
-7. Click **Home machine** on the Machine tab.
+7. Click **Home** in the machine controls at the top.
 
 > **TIP:** You can run the simulator and the machine at the same time on different ports. For example, use `--sim --port 8080` for the simulator and `--port 8081` for the machine.
 
@@ -203,7 +203,7 @@ This is the usual sequence for a work session. The sections that follow give the
 
 1. Turn on the machine. Start the server and open the web interface (see [4.2](#42-start-with-the-machine)).
 2. Make sure that the two camera views at the top show a live image. If a view stays empty, see [9.2](#92-a-camera-view-stays-empty).
-3. Click **Home machine**.
+3. Click **Home** (machine controls at the top).
 4. Make sure that the two nozzles are level. If they are not, see [7.9](#79-set-the-z-zero).
 5. Install the feeder stacks. On the Feeders tab, load the layout of each stack, or import a feeder file (see [7.3](#73-change-a-stack) and [7.4](#74-export-and-import-the-feeders)).
 6. On the Job tab, import the KiCad position file and set the board with two reference points (see [7.6](#76-run-a-job)).
@@ -215,30 +215,31 @@ This is the usual sequence for a work session. The sections that follow give the
 
 ## 6. The web interface
 
-The web interface has seven tabs: **Machine**, **Setup**, **Feeders**, **Job**, **Log**, **Defaults** and **Settings**. The **Settings** tab is at the right side of the tab bar.
+The web interface has six tabs: **Setup**, **Feeders**, **Job**, **Log**, **Defaults** and **Settings**. The **Settings** tab is at the right side of the tab bar. The application opens the tab that you used last.
 
 The bar at the top is always on the screen. It does not scroll. It shows:
 
-- The connection status, the homing status, the busy status and the speed mode. Put the mouse on the connection status to see the last connection error.
+- The connection status, the homing status, the busy status and the job speed. Put the mouse on the connection status to see the last connection error, and on the speed to see the job speed and the jog speed.
 - **Connect**: this button shows when the machine is not connected. Click it to connect again, for example after you turn the machine off and on.
 - The **E-stop** button.
-- The **camera views**: the down camera (left) and the up camera (right). Each view has a crosshair and shows the frame rate. Click a point in a view to move the head to that point (the camera must be calibrated). **Up LEDs** turns the up camera lights on and off.
-- **Detect** (on each camera view): shows what the camera detects in the live image. It does not move the machine.
+- The **camera views**: the down camera (left) and the up camera (right). Each view has a crosshair and shows the frame rate. Click a point in a view to move the head to that point (the camera must be calibrated). The lamp button (**Up LEDs**) turns the up camera lights on and off.
+- The **machine controls**, next to the camera views (see [6.1](#61-machine-controls)).
+- **Detect** (the scan button on each camera view): shows what the camera detects in the live image. It does not move the machine.
   - **Down camera:** the yellow broken rings show the smallest and the largest mark size (the **Mark Ø** on the Job tab). The green circle and cross show the mark that **Centre on mark** goes to. The text below the view shows the diameter of the mark.
   - **Up camera:** the yellow broken circle shows the search radius around the nozzle. The green rectangle shows the outline of the part that bottom vision measures. The text below the view shows the size, the angle and the offset of the part. Turn on **Up LEDs** to see what an inspection sees.
 
-### 6.1 Machine tab
+### 6.1 Machine controls
 
-Use the Machine tab for manual control. The tab has three columns: position, jog and outputs.
+The machine controls are in the bar at the top, next to the camera views. You can use them on all tabs. The arrow button at the right of the bar hides or shows them, to give more space to the tabs. On a narrow screen, they go below the camera views.
 
 - **Position:** the X, Y, Z, A1 and A2 positions.
-- **Sensors:** the four limit switches, the vacuum sensor of each nozzle and the **Needle** light. The Needle light comes on when the needle sensor reads "down".
-- **Go to:** moves the head to an X/Y position. You must home the machine first.
-- **Home machine:** homes Y, then X.
-- **Jog:** moves X and Y by the selected step (0.01 mm to 50 mm). **Raise** lifts the two nozzles.
-  - **Panel keys:** **Dot (step)** or **Con (hold)**, the jog mode of the front panel arrow keys. The DotMove/ConMove key on the machine changes it too. The keys that you hold on the front panel show next to it.
-- **Nozzles:** lowers and lifts each nozzle by the selected Z step. It also turns each nozzle by the selected angle, clockwise or anticlockwise as seen from above, or back to 0°.
-- **Set Z zero here:** sets the current Z position as 0 (the two nozzle tips are level). This button does not move the machine (see [7.9](#79-set-the-z-zero)).
+  - The sensor lights: the four limit switches (**L**, **R**, **T**, **B**), the vacuum sensor of each nozzle (**Vac 1**, **Vac 2**) and **Needle down**. The needle light comes on when the needle sensor reads "down".
+  - **X**, **Y** and **Go:** move the head to an X/Y position. You must home the machine first.
+  - **Home:** homes Y, then X.
+- **Jog:** moves X and Y by the selected step (0.01 mm to 50 mm). The centre button lifts the two nozzles.
+  - **Dot** or **Con:** the jog mode of the front panel arrow keys (one step per press, or move while held). The DotMove/ConMove key on the machine changes it too, and the two speed lights on the front panel show the mode. The keys that you hold on the front panel show next to it.
+- **Nozzles:** **Z** is the step to lower or lift a nozzle, **°** is the step to turn it. For **N1** and **N2**: lower, lift, turn anticlockwise, turn clockwise (as seen from above), and **0°**.
+  - **Set Z zero:** sets the current Z position as 0 (the two nozzle tips are level). This button does not move the machine (see [7.9](#79-set-the-z-zero)).
 - **Outputs:** turns the pump, vacuum, blow-off, feeder needle, LEDs and buzzer on and off.
 
 Keyboard keys:
@@ -273,6 +274,8 @@ Use the Feeders tab to define feeders and to do manual picks.
 - **Feeders:** a table of all feeders. A feeder has a type:
   - **Strip:** a cut tape. The pick point moves one pitch for each part.
   - **Drag:** a tape that the needle moves. The pick point does not move.
+  - **Tray (IC matrix):** a tray of parts in rows and columns (see [7.15](#715-use-an-ic-tray)).
+- **Camera to** (in each row of the feeder table): **Pick** moves the down camera to the pick point of the feeder, **Prick** to its needle point (drag feeders only). Use them to make sure that the points are correct.
 - **Export** and **Import…:** save all feeders, banks and layouts in one file, and load them again (see [7.4](#74-export-and-import-the-feeders)).
 - **Feeder form:** edit one feeder (value, package, pick point, feed direction, pitch, count, rotation offset, pick depth, needle point). A new feeder gets the default pick depth from the Defaults tab.
   - **Rotation offset °:** the application adds this angle to each part that it places from this feeder. Positive is anticlockwise. For example, −90 turns each part 90° clockwise. Use it when the tape holds the parts at a different angle than KiCad expects (see [7.13](#713-set-the-rotation-of-a-feeder)).
@@ -291,9 +294,13 @@ Use the Job tab to place a full board or panel.
 
 - **Run:** **Start job**, **Pause**, **Resume**, **Stop**, **Step** and **Reset statuses**. A progress bar and the counts of placed, failed and skipped parts.
   - **Step** runs the job one stage at a time (see [7.12](#712-run-a-job-one-stage-at-a-time)). In step mode, the Run card shows the stage that the next press does.
+  - **Job speed** sets the speed of the moves while placing: 20 % to 120 % (the speed levels of the vendor software). 50 % is the default. A higher speed also accelerates harder.
   - **Nozzles** shows what each nozzle holds. **Reset nozzles** turns the vacuum off, lifts the two nozzles and clears what they hold. Use it after a bad pick. The head does not move in X and Y.
-- **Import:** reads a KiCad position file (`.pos` or `.csv`).
+- **Import:** reads a KiCad position file (`.pos` or `.csv`), or a job file that you exported from this application (`.yaml`). For a job file, **Reset statuses** (on by default) sets all parts to "to do". The fiducial measurement is not kept: measure the fiducials again for the board on the machine.
+- **Export job** (next to **Delete job**) saves the current job with all your changes (parts on or off, removed parts, positions, rotations, heights, speeds, nozzle, feeder and vision choices, panel, reference points, fiducials, PCB thickness) to a `.yaml` file. Import the file again to continue with the same setup later.
 - **Board:** sets the board position and rotation from two **reference points** that you measure with the down camera (see [7.6](#76-run-a-job)).
+  - **Scale** shows the board scale that the reference points or the fiducials measured (1.00000 = no correction). The application applies it to all placements, as the vendor software does.
+  - **PCB thickness mm** (default 1.6) is used for the place depth when the bed depth is set (see [7.14](#714-set-the-place-depth-from-the-board-and-the-parts)).
   - **Capture camera** puts the camera position in the machine position fields of the point.
   - **Centre on mark** moves the camera to the centre of the round mark nearest to the crosshair (a hole, a cut-out, a pad or a fiducial). Then it captures the position. **Mark Ø** sets the size of the mark: 0.3–4 mm, 0.3–1.5 mm, 1–4 mm or 3–8 mm.
   - The card shows the area of the parts in the coordinates of the file. The two points must be in these coordinates.
@@ -308,7 +315,7 @@ Use the Job tab to place a full board or panel.
   - Remove the part from the job (bin icon). To get it back, import the file again.
   - Set a placed or failed part back to "to do".
 
-  **Place at** shows the machine position of the part and the angle that the nozzle turns to (the part rotation plus the rotation offset of the feeder). The **Problem** column shows why a part cannot be placed. The **Disabled** filter shows only the parts that are off. **Enable shown** and **Disable shown** switch on or off all parts in the list.
+  **Place at** shows the machine position of the part and the angle that the nozzle turns to (the part rotation plus the rotation offset of the feeder). **Speed %** (10–100) slows the moves that carry the part, as a percentage of the job speed. Use a lower value for heavy or tall parts. The **Problem** column shows why a part cannot be placed. The **Disabled** filter shows only the parts that are off. **Enable shown** and **Disable shown** switch on or off all parts in the list.
 
 ### 6.5 Log tab
 
@@ -320,10 +327,10 @@ Use the Defaults tab to change the default values of the machine. You do not hav
 
 The values are in groups:
 
-- **Pick & place:** default pick depth, default place depth, pick dwell, place dwell, blow-off time, vacuum settle, vacuum sensor check, needle settle, needle sensor timeout and the discard bin position.
+- **Pick & place:** default pick depth, default place depth, bed depth, default part height, pick dwell, place dwell, blow-off time, vacuum settle, vacuum sensor check, needle settle, needle sensor timeout, the discard bin position and **Pick with both nozzles** (see [7.16](#716-pick-with-both-nozzles)).
 - **Bottom vision:** vision on or off, up LEDs, camera settle, brightness threshold, search radius, nozzle tip diameters, size tolerance, maximum part offset and maximum part angle.
 - **Soft limits:** the X range, the Y range and the lowest point of each nozzle.
-- **Motion:** the speed estimates, the extra move time and the jog settings before homing.
+- **Motion:** the job speed level and the jog speed level (1–11; level n is shown as (n+1)×10 %, 4 = 50 %), the speed estimates, the extra move time and the jog settings before homing.
 - **Advanced** (closed by default): homing, steps per mm, the controller connection and motion internals.
 
 > **CAUTION:** The Advanced values were measured on this machine. An incorrect value can make all moves the wrong length, stop the homing or stop the connection to the controller. Change these values only if you know the correct value.
@@ -377,7 +384,7 @@ Procedure:
    2. Click **Record nozzle 1 position**.
    3. Do steps 6.1 and 6.2 again for nozzle 2.
 
-> **NOTE:** Lower the needle only with **Lower needle** on the Setup tab. If you lower it with the **Outputs** card on the Machine tab, the head cannot move until you lift the needle.
+> **NOTE:** Lower the needle only with **Lower needle** on the Setup tab. If you lower it with **Outputs** in the machine controls, the head cannot move until you lift the needle.
 
 ### 7.2 Make a feeder bank
 
@@ -553,7 +560,7 @@ The two nozzles are on a seesaw. At Z = 0 the two nozzle tips are level. A posit
 Z has no home switch. If a nozzle goes past its end, the motor loses steps and the zero moves.
 
 1. Jog Z until the two nozzle tips are level.
-2. Click **Set Z zero here** on the Machine tab.
+2. Click **Set Z zero** in the machine controls (Nozzles).
 
 This button does not move the machine.
 
@@ -580,7 +587,7 @@ The keys on the machine front panel work when the application is connected. The 
 
 | Key | Function |
 |---|---|
-| **X−**, **X+**, **Y+**, **Y−** | Jog the head. In **Dot** mode, one press moves one step (the X/Y step on the Machine tab). In **Con** mode, the head moves while you hold the key, but not past the soft limit. |
+| **X−**, **X+**, **Y+**, **Y−** | Jog the head. In **Dot** mode, one press moves one step (the Jog step in the machine controls). In **Con** mode, the head moves while you hold the key, but not past the soft limit. |
 | **DotMove/ConMove** | Changes the jog mode between Dot and Con. |
 | **Step** | Runs the job one stage at a time (see [7.12](#712-run-a-job-one-stage-at-a-time)). |
 | **Start/Stop** | Starts the job. If the job runs, is in step mode or is paused, it stops the job. |
@@ -632,6 +639,40 @@ The tape holds each part at an angle that the tape standard sets. This angle can
 For all lanes of a stack, type the angle in **Rotation offset °** of **Generate lanes** and click **Apply rotation offset to all lanes**.
 
 The **Place at** column of the **Parts** table shows the new nozzle angle. A different feeder can need a different offset. For a two-terminal part, +90 and −90 give the same result. For a polarized part, make sure of the direction.
+
+### 7.14 Set the place depth from the board and the parts
+
+The vendor software calculates the place depth from the board and the part. The nozzle holds the part by its top, so the nozzle tip must stop one part height above the board surface:
+
+place depth = bed depth − PCB thickness − part height
+
+1. Measure the **bed depth**: home the machine, move a nozzle above the surface that the PCB lies on (with no PCB there) and lower it in small steps until the tip touches the surface. Read the Z value.
+2. On the Defaults tab, type it in **Bed depth** and click **Save defaults**.
+3. On the Job tab, set the **PCB thickness mm** of the board.
+4. Set the part heights:
+   - For a package: **Height mm** in the nozzle rules (Settings tab).
+   - For one part: **Height mm** in the **Parts** table.
+   - Parts with no height use **Default part height** on the Defaults tab (0.5 mm).
+5. Look at the **Place at** column: it shows the place depth of each part.
+
+A **Place depth** set in a nozzle rule still has priority. With the bed depth at 0 (the default), the application uses the place depths as before.
+
+### 7.15 Use an IC tray
+
+1. On the Feeders tab, click **New feeder** and select the kind **Tray (IC matrix)**.
+2. Type the **Columns** and the **Rows** of the tray, the **Value** and the **Package**. Click **Save feeder**.
+3. Put the down camera on the centre of the first part (one corner of the tray) and click **Teach pick from camera**.
+4. Put the camera on the centre of the last part (the opposite corner) and click **Teach last part from camera**.
+
+The application picks the parts row by row from the first part. The feeder table shows how many parts are left. To use a full tray again, teach the pick again (this sets the count to 0).
+
+### 7.16 Pick with both nozzles
+
+With **Pick with both nozzles** on (Defaults tab, Pick & place), the automatic run picks the next part for nozzle 1 and the next part for nozzle 2, and then places the two. This saves one trip between the feeders and the board for each pair.
+
+- It applies only when the job has parts for the two nozzles. Step mode always does one part at a time.
+- If one of the two parts cannot be picked after the tries, the application places the other part, marks the failed part and pauses the job.
+- Try it first on a board that you can lose: it was tested in the simulator only.
 
 ---
 
@@ -688,11 +729,11 @@ Values measured on this machine (in `machine.yaml`):
 
 ### 9.3 Homing stops on a limit switch
 
-The controller sometimes ignores a move that comes immediately after a stop. The application checks that each homing move starts, and sends the move again up to three times. If homing still stops, click **Home machine** again.
+The controller sometimes ignores a move that comes immediately after a stop. The application checks that each homing move starts, and sends the move again up to three times. If homing still stops, click **Home** again.
 
 ### 9.4 The head does not move
 
-- Look at the **Needle** light on the Machine tab. If the needle is down, the head does not move. Lift the needle with the **Outputs** card.
+- Look at the **Needle down** light in the machine controls. If the needle is down, the head does not move. Lift the needle with **Prick needle** in **Outputs**.
 - Make sure that the machine is homed. **Go to** and clicks in the camera views need a homed machine.
 - Make sure that no job runs.
 
@@ -788,8 +829,8 @@ Do these tasks before the first job on the machine:
 
 - **2 mm pitch tape (0402 and 0201):** the sprocket holes are 4 mm apart. After a feed of 2 mm, no hole is below the needle point. The method for 2 mm pitch is not known yet.
 - **Esc key:** Esc does an E-stop on all screens, also when a dialog is open.
-- **Speed:** the application cannot change the machine speed yet. The data that sets the speed is not known.
-- **One job:** the application keeps one job at a time. When you import a new file, the application replaces the current job.
+- **Speed:** the speed levels come from the vendor software. The units of the velocity values are not measured yet, so the speed estimates for the move time limits (Defaults tab, Motion) are still estimates for 50 %.
+- **One job:** the application keeps one job at a time. When you import a new file, the application replaces the current job. Use **Export job** to keep a job for later.
 - **Vacuum sensor:** on this machine, the vacuum sensor does not show a held part. The pick check with the sensor is off by default.
 - **Cameras:** the USB cameras can stop when they open. Then you must disconnect the camera and connect it again (see [9.2](#92-a-camera-view-stays-empty)).
 - **Browser dialogs:** the web interface uses its own confirmation windows. It does not use the browser `alert`, `confirm` or `prompt` dialogs, because some browser panes block them.
@@ -798,6 +839,18 @@ Do these tasks before the first job on the machine:
 ---
 
 ## 14. Recent changes
+
+Changes, 18 November 2026:
+
+- **Board scale:** the two reference points and the fiducials measure the board scale, and the application applies it (see the **Scale** on the Board card).
+- **Place depth from the board:** bed depth, PCB thickness and part height (see [7.14](#714-set-the-place-depth-from-the-board-and-the-parts)).
+- **IC tray feeder** (see [7.15](#715-use-an-ic-tray)).
+- **Job export and import:** **Export job** saves the job with all changes; **Import** loads it again.
+- **Pick with both nozzles** (see [7.16](#716-pick-with-both-nozzles)).
+- **Speed:** the speed command of the vendor software is known (12 levels, with a percentage for each part). Set the **Job speed** on the Run card and a **Speed %** for each part. Manual moves use the jog speed level on the Defaults tab. The default, 50 %, is the speed that the application always used. The move time limits become longer at lower speeds.
+- **Front panel speed lights** show the Dot or Con jog mode, as in the vendor software.
+- **Machine controls in the top bar:** position, sensors, Go to, Home, jog, nozzles and outputs are next to the camera views on all tabs. The Machine tab is removed. The application opens the tab that you used last.
+- **Feeder table:** **Pick** and **Prick** buttons move the camera to the pick point and the needle point of each feeder.
 
 Changes from the work on the machine, 16 November 2026:
 
@@ -826,7 +879,7 @@ Changes from the work on the machine, 13 November 2026:
 - **Needle interlock:** the head does not move when the needle is down, except during a feed and in the Setup needle step.
 - **Stuck needle alarm:** the buzzer and an alarm window with **Silence buzzer**, **Clear and continue** and **Abort**.
 - **Vacuum:** the vacuum stays on from the pick until the place. The vacuum sensor check is off by default. The vacuum outputs of nozzle 1 and nozzle 2 were the wrong way around; this is corrected.
-- **Z:** the seesaw Z is documented, the lowest point of each nozzle is 9.5 mm, and **Set Z zero here** sets the Z zero without a move.
+- **Z:** the seesaw Z is documented, the lowest point of each nozzle is 9.5 mm, and **Set Z zero** sets the Z zero without a move.
 - **Soft limits:** X is −120 mm to 299 mm, Y is −75 mm to 350.5 mm (measured).
 - **Connection:** the application connects again automatically after a machine power cycle. A **Connect** button connects immediately.
 - **Homing:** each homing move is checked and sent again if the controller ignores it.

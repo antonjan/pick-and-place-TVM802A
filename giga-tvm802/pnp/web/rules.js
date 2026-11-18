@@ -2,7 +2,7 @@
 
 // Setup tab, Nozzle rules card: edits /api/package-rules. Loaded after app.js.
 
-let rulesState = null;   // {default_nozzle, rules: [{pattern, nozzle, body: [length, width] (text), place_depth (text), vision, note}]}
+let rulesState = null;   // {default_nozzle, rules: [{pattern, nozzle, body: [length, width] (text), place_depth (text), height (text), vision, note}]}
 let rulesDirty = false;  // unsaved edits: switching tabs does not reload over them
 
 function setRulesState(data) {
@@ -13,6 +13,7 @@ function setRulesState(data) {
       nozzle: r.nozzle,
       body: r.body ? [String(r.body[0]), String(r.body[1])] : ["", ""],
       place_depth: r.place_depth == null ? "" : String(r.place_depth),
+      height: r.height == null ? "" : String(r.height),
       vision: r.vision !== false,
       note: r.note || "",
     })),
@@ -97,6 +98,18 @@ function ruleRow(rule) {
     rulesDirty = true;
   });
 
+  const height = elem("input", "num");
+  height.type = "number";
+  height.step = "any";
+  height.min = "0";
+  height.placeholder = "Default";
+  height.value = rule.height;
+  height.setAttribute("aria-label", "Height mm");
+  height.addEventListener("input", () => {
+    rule.height = height.value;
+    rulesDirty = true;
+  });
+
   const vision = elem("input");
   vision.type = "checkbox";
   vision.checked = rule.vision;
@@ -126,7 +139,7 @@ function ruleRow(rule) {
   });
 
   const tr = elem("tr");
-  tr.append(...[pattern, nozzle, body, depth, vision, note, remove].map((node) => {
+  tr.append(...[pattern, nozzle, body, depth, height, vision, note, remove].map((node) => {
     const td = elem("td");
     td.append(node);
     return td;
@@ -136,7 +149,7 @@ function ruleRow(rule) {
 
 function addRule() {
   if (!rulesState) return;
-  rulesState.rules.push({ pattern: "", nozzle: 1, body: ["", ""], place_depth: "", vision: true, note: "" });
+  rulesState.rules.push({ pattern: "", nozzle: 1, body: ["", ""], place_depth: "", height: "", vision: true, note: "" });
   rulesDirty = true;
   renderRules();
   const first = $("#rules-rows tr:last-child input");
@@ -160,11 +173,17 @@ function rulesBody() {
       placeDepth = parseNum(r.place_depth, `Place depth for rule ${i + 1}`);
       if (placeDepth <= 0) throw new Error(`Place depth for rule ${i + 1} must be more than 0`);
     }
+    let height = null;
+    if (r.height.trim() !== "") {
+      height = parseNum(r.height, `Height for rule ${i + 1}`);
+      if (height < 0) throw new Error(`Height for rule ${i + 1} can't be negative`);
+    }
     return {
       pattern,
       nozzle: r.nozzle,
       body,
       place_depth: placeDepth,
+      height,
       vision: r.vision,
       note: r.note.trim(),
     };

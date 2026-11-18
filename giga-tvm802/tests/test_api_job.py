@@ -6,16 +6,19 @@ the rules are edited (and restored), the demo job is imported, aligned and run t
 
 import contextlib
 import math
+import re
 import time
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 
 from pnp.api.__main__ import sim_demo_boards
 from pnp.api.app import create_app
 from pnp.config import HeadConfig, MachineConfig
+from pnp.job.job import JobStore
 from pnp.job.rules import DEFAULT_RULES
 from pnp.machine.machine import Machine
 from pnp.sim.sim_vision import (
@@ -207,7 +210,7 @@ def test_package_rules(env):
     assert r.status_code == 200
     assert r.json()["default_nozzle"] == 2
     assert r.json()["rules"] == [{"pattern": "TSSOP*", "nozzle": 1, "place_depth": 2.5, "note": "tall",
-                                  "body": None, "vision": True}]
+                                  "body": None, "vision": True, "height": None}]
     assert (env.tmp / "packages.yaml").exists()
 
     # Put the defaults back for the job tests.
@@ -223,7 +226,7 @@ def test_package_rules_body_and_vision_round_trip(env):
     r = c.put("/api/package-rules", json=edited)
     assert r.status_code == 200, r.text
     assert r.json()["rules"] == [{"pattern": "*0603*", "nozzle": 2, "place_depth": None, "note": "",
-                                  "body": [1.6, 0.8], "vision": False}]  # stored as (length, width)
+                                  "body": [1.6, 0.8], "vision": False, "height": None}]  # stored as (length, width)
     assert c.get("/api/package-rules").json()["rules"][0]["vision"] is False
     bad_body = {"default_nozzle": 1, "rules": [{"pattern": "*0603*", "nozzle": 2, "body": [1.6]}]}
     assert c.put("/api/package-rules", json=bad_body).status_code == 400
@@ -681,6 +684,7 @@ def test_two_points_in_other_coordinates_are_refused_and_board_kept(tmp_path):
         r = two((92.0, -41.747), (150.0, -120.75), wa=(-40.0, -60.0), wb=(18.0, -139.0))
         assert r.status_code == 400 and "outside the machine" in r.json()["detail"]
         assert job_state(c)["job"]["origin"] == [-80.0, 160.0]  # unchanged
+        assert job_state(c)["job"]["scale"] == 1.0  # the refused fit's scale is not kept either
         # good: the two board corners where the camera saw them on the bed
         r = two((92.0, -41.747), (150.0, -120.75), wa=(12.0, 118.253), wb=(70.0, 39.25))
         assert r.status_code == 200, r.text
@@ -729,3 +733,185 @@ def test_detection_overlay_endpoint(cam):
     assert c.get("/api/vision/detect/down?mark_min=5&mark_max=3").status_code == 400
     assert c.get("/api/vision/detect/down?method=nope").status_code == 400
     assert c.get("/api/vision/detect/up").status_code == 404  # this app has no up camera
+
+
+def test_part_speed_and_job_speed_level(tmp_path):
+    with start_app(tmp_path) as e:
+        c = e.client
+        assert c.post("/api/job/import", json={"name": "Demo", "filename": "demo.pos", "text": DEMO.read_text()}).status_code == 200
+        base = {"skip": False, "nozzle": None, "feeder": None, "vision": None}
+        r = c.put("/api/job/parts/R1", json={**base, "speed": 40})
+        assert r.status_code == 200
+        assert next(p for p in r.json()["job"]["parts"] if p["ref"] == "R1")["speed"] == 40
+        assert next(i for i in r.json()["plan"] if i["ref"] == "R1")["speed"] == 40
+        assert c.put("/api/job/parts/R1", json={**base, "speed": 5}).status_code == 400
+        assert c.get("/api/state").json()["speed"]["job_level"] == 4
+        assert c.put("/api/config/defaults", json={"changes": {"motion": {"job_speed_level": 12}}}).status_code == 400
+
+
+def test_align_two_points_stores_scale(tmp_path):
+    """A board 0.34 % short: the two points give a scale. It is stored, returned in `alignment`,
+    kept by a manual board PUT, and survives a reload from the job file."""
+    import math
+    with start_app(tmp_path) as e:
+        c = e.client
+        r = c.post("/api/job/import", json={"name": "Demo", "filename": "demo.pos", "text": DEMO.read_text()})
+        assert r.status_code == 200, r.text
+        assert c.post("/api/home").status_code == 200
+        assert job_state(c)["job"]["scale"] == 1.0
+        true_origin, true_rot, true_scale = (147.5, 152.25), 1.2, 0.9966
+        a_board, b_board = (5.0, 4.0), (40.0, 30.0)
+        rot = math.radians(true_rot)
+
+        def seen(p):  # the camera sees the board scaled by true_scale, then rotated and moved
+            x, y = true_scale * p[0], true_scale * p[1]
+            return (true_origin[0] + math.cos(rot) * x - math.sin(rot) * y,
+                    true_origin[1] + math.sin(rot) * x + math.cos(rot) * y)
+
+        recorded = []
+        for p in (a_board, b_board):
+            w = seen(p)
+            assert c.post("/api/move", json={"x": w[0], "y": w[1]}).status_code == 200
+            pos = c.get("/api/state").json()["position"]
+            recorded.append((pos["x"], pos["y"]))
+        body = {"board": 0,
+                "a": {"ref": "R1", "x": a_board[0], "y": a_board[1], "world_x": recorded[0][0], "world_y": recorded[0][1]},
+                "b": {"ref": None, "x": b_board[0], "y": b_board[1], "world_x": recorded[1][0], "world_y": recorded[1][1]}}
+        r = c.post("/api/job/align/two-points", json=body)
+        assert r.status_code == 200, r.text
+        out = r.json()
+        assert out["job"]["scale"] == pytest.approx(true_scale, abs=0.002)
+        assert out["alignment"]["scale"] == pytest.approx(out["job"]["scale"], abs=1e-12)
+
+        # a manual board PUT sets origin and rotation only: the scale stays
+        assert c.put("/api/job/board", json={"origin": [147.5, 152.25], "rotation": 1.2}).status_code == 200
+        assert job_state(c)["job"]["scale"] == pytest.approx(out["job"]["scale"], abs=1e-12)
+
+    # a new app on the same job file: the scale is read back from the file
+    with start_app(tmp_path) as e:
+        assert job_state(e.client)["job"]["scale"] == pytest.approx(out["job"]["scale"], abs=1e-12)
+
+
+def test_part_height_pcb_thickness_and_bed_depth_place_depth(tmp_path):
+    with start_app(tmp_path) as e:
+        c = e.client
+        assert c.post("/api/job/import", json={"name": "Demo", "filename": "demo.pos", "text": DEMO.read_text()}).status_code == 200
+        base = {"skip": False, "nozzle": None, "feeder": None, "vision": None}
+
+        def part(s, ref):
+            return next(p for p in s["job"]["parts"] if p["ref"] == ref)
+
+        def item(s, ref):
+            return next(i for i in s["plan"] if i["ref"] == ref)
+
+        # the job starts with the default thickness, and parts without their own height
+        s = c.get("/api/job").json()
+        assert s["job"]["pcb_thickness"] == 1.6
+        assert part(s, "R1")["height"] is None
+        assert item(s, "R1")["place_depth"] is None  # bed depth not set: the place depth stays as before
+
+        # a part height, then back to automatic
+        r = c.put("/api/job/parts/R1", json={**base, "height": 1.2})
+        assert r.status_code == 200
+        assert part(r.json(), "R1")["height"] == 1.2 and item(r.json(), "R1")["height"] == 1.2
+        assert c.put("/api/job/parts/R1", json={**base, "height": 31}).status_code == 400
+        assert c.put("/api/job/parts/R1", json={**base, "height": -0.1}).status_code == 400
+        r = c.put("/api/job/parts/R1", json={**base, "height_auto": True})
+        assert part(r.json(), "R1")["height"] is None
+        assert item(r.json(), "R1")["height"] == 0.5  # no rule height: head.part_height
+
+        # the bed depth model: depth = bed depth - PCB thickness - part height
+        e.machine.cfg.head.bed_depth = 8.0
+        c.put("/api/job/parts/R1", json={**base, "height": 1.2})
+        r = c.put("/api/job/pcb-thickness", json={"pcb_thickness": 1.0})
+        assert r.status_code == 200
+        assert r.json()["job"]["pcb_thickness"] == 1.0
+        assert item(r.json(), "R1")["place_depth"] == pytest.approx(8.0 - 1.0 - 1.2)
+        assert "place_depth" in item(r.json(), "C1")
+
+        # refused values leave the thickness as it was
+        for bad in (0, -1, 10.5, None):
+            assert c.put("/api/job/pcb-thickness", json={"pcb_thickness": bad}).status_code in (400, 422)
+        assert c.get("/api/job").json()["job"]["pcb_thickness"] == 1.0
+
+        # the package rule's height is used for a part without its own, and the rules keep it
+        r = c.put("/api/package-rules", json={"default_nozzle": 1, "rules": [
+            {"pattern": "*0805*", "nozzle": 2, "height": 0.9, "place_depth": None, "body": None, "vision": True, "note": ""}]})
+        assert r.status_code == 200
+        assert r.json()["rules"][0]["height"] == 0.9
+        assert c.put("/api/package-rules", json={"default_nozzle": 1, "rules": [
+            {"pattern": "*0805*", "nozzle": 2, "height": -1}]}).status_code == 400
+        s = c.put("/api/job/parts/R1", json={**base, "height_auto": True}).json()
+        assert item(s, "R1")["height"] == 0.9
+        assert item(s, "R1")["place_depth"] == pytest.approx(8.0 - 1.0 - 0.9)
+        e.machine.cfg.head.bed_depth = 0.0
+
+
+def test_job_file_export_and_import_keeps_edits(tmp_path):
+    with start_app(tmp_path) as e:
+        c = e.client
+        assert c.get("/api/job/export").status_code == 404  # no job
+
+        assert c.post("/api/job/import", json={"name": "Demo", "filename": "demo.pos",
+                                                "text": DEMO.read_text()}).status_code == 200
+        assert c.put("/api/job/board", json={"origin": [100.0, 50.0], "rotation": 0.0}).status_code == 200
+        r = c.put("/api/job/parts/R1", json={"skip": False, "x": 7.5, "y": 8.25, "rotation": 45.0, "speed": 60,
+                                              "nozzle": 2, "feeder": None, "vision": False})
+        assert r.status_code == 200, r.text
+        assert c.post("/api/job/parts/enable", json={"refs": ["C1"], "enabled": False}).status_code == 200
+        assert c.post("/api/job/placements/0:R1/status", json={"status": "placed"}).status_code == 200
+        # a fiducial measurement that belongs to the board on the machine now
+        store = JobStore(e.tmp / "job.yaml")
+        job = store.load()
+        job.fit = {"rms": 0.01, "rotation": 0.0, "origin": [100.0, 50.0]}
+        store.save(job)
+
+        r = c.get("/api/job/export")
+        assert r.status_code == 200, r.text
+        assert re.fullmatch(r'attachment; filename="job-Demo-\d{4}-\d{2}-\d{2}-\d{4}\.yaml"',
+                            r.headers["content-disposition"])
+        text = r.text
+        assert yaml.safe_load(text)["format"] == "tvm802-job"
+
+        # delete the job, then load the file back
+        assert c.delete("/api/job").status_code == 200
+        assert job_state(c)["job"] is None
+        assert c.get("/api/job/export").status_code == 404
+
+        # statuses reset by default; the fit is forgotten; the edits are back
+        r = c.post("/api/job/import-file", json={"text": text})
+        assert r.status_code == 200, r.text
+        s = r.json()
+        job = s["job"]
+        assert job["name"] == "Demo" and job["origin"] == [100.0, 50.0]
+        assert job["status"] == {} and job["fit"] is None and job["board_fits"] == {}
+        parts = {p["ref"]: p for p in job["parts"]}
+        assert parts["R1"]["x"] == 7.5 and parts["R1"]["y"] == 8.25 and parts["R1"]["rotation"] == 45.0
+        assert parts["R1"]["speed"] == 60 and parts["R1"]["nozzle"] == 2 and parts["R1"]["vision"] is False
+        assert parts["C1"]["skip"] is True
+        assert all(i["status"] != "placed" for i in s["plan"])
+
+        # kept with reset_statuses false (the fit is still forgotten)
+        assert c.post("/api/job/placements/0:R1/status", json={"status": "placed"}).status_code == 200
+        job_now = JobStore(e.tmp / "job.yaml").load()
+        job_now.fit = {"rms": 0.01, "rotation": 0.0, "origin": [100.0, 50.0]}
+        JobStore(e.tmp / "job.yaml").save(job_now)
+        text = c.get("/api/job/export").text
+        assert c.delete("/api/job").status_code == 200
+        r = c.post("/api/job/import-file", json={"text": text, "reset_statuses": False})
+        assert r.status_code == 200, r.text
+        job = r.json()["job"]
+        assert job["status"] == {"0:R1": "placed"} and job["fit"] is None
+        assert {p["ref"]: p for p in job["parts"]}["R1"]["x"] == 7.5
+
+        # a name with other characters is sanitised in the file name
+        assert c.post("/api/job/import", json={"name": "My board/v2", "filename": "x.pos",
+                                                "text": DEMO.read_text()}).status_code == 200
+        r = c.get("/api/job/export")
+        assert 'filename="job-My-board-v2-' in r.headers["content-disposition"]
+
+        # refused: not a job file, bad YAML, a feeder file, an empty text
+        for bad in (DEMO.read_text(), "format: [", yaml.safe_dump({"format": "tvm802-feeders", "version": 1}), ""):
+            r = c.post("/api/job/import-file", json={"text": bad})
+            assert r.status_code == 400, bad[:40]
+            assert r.json()["detail"]

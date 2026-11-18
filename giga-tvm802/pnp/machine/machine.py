@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import contextvars
 import logging
 import time
 from collections.abc import Callable
@@ -25,6 +26,11 @@ from pnp.tvm.protocol import Axis, Output
 from pnp.tvm.transport import NotConnected, TvmTransport
 
 log = logging.getLogger(__name__)
+
+# Speed for the moves made by the current task: (level, percent) or None = the jog speed
+# from the config. A context variable, so a job's speed (set inside the runner's task)
+# never leaks into a manual move made meanwhile from another request.
+_SPEED: contextvars.ContextVar[tuple[int, int] | None] = contextvars.ContextVar("move_speed", default=None)
 
 AXIS_BY_NAME: dict[str, Axis] = {"x": Axis.X, "y": Axis.Y, "z": Axis.Z, "a1": Axis.A1, "a2": Axis.A2}
 NAME_BY_AXIS = {v: k for k, v in AXIS_BY_NAME.items()}
@@ -203,6 +209,7 @@ class Machine:
             "outputs": {name: bool(s.outputs & bit) == True and (s.outputs & bit) == bit
                         for name, bit in OUTPUTS.items()} if s else {},
             "speed_mode": s.speed_mode if s else None,
+            "speed": {"job_level": self.cfg.motion.job_speed_level, "jog_level": self.cfg.motion.jog_speed_level},
             "panel": {**self.panel, "keys": sorted(s.keys) if s else []},
             "soft_limits": {"x": list(self.cfg.limits.x), "y": list(self.cfg.limits.y),
                             "z1_max": self.cfg.limits.z1_max, "z2_max": self.cfg.limits.z2_max},
@@ -271,11 +278,38 @@ class Machine:
 
     # ------------------------------------------------------------------ motion primitives (lock held)
 
+    # ------------------------------------------------------------------ speed
+
+    def move_speed(self) -> tuple[int, int]:
+        """(level, percent) of the next move: the task's speed, else the jog speed."""
+        sp = _SPEED.get()
+        return sp if sp is not None else (self.cfg.motion.jog_speed_level, 100)
+
+    @contextlib.contextmanager
+    def speed(self, level: int | None = None, percent: int | None = None):
+        """Moves inside this block (in this task) use this speed level and/or percentage;
+        what is not given is kept from the enclosing speed."""
+        cur = self.move_speed()
+        new = (cur[0] if level is None else int(level), cur[1] if percent is None else int(percent))
+        p.encode_speed(*new)  # validates
+        token = _SPEED.set(new)
+        try:
+            yield
+        finally:
+            _SPEED.reset(token)
+
+    def _speed_frame(self) -> bytes:
+        return p.encode_speed(*self.move_speed())
+
     def _estimate_timeout(self, targets: dict[Axis, int], start: p.MachineState) -> float:
         m = self.cfg.motion
         speed = {Axis.X: m.xy_speed, Axis.Y: m.xy_speed, Axis.Z: m.z_speed, Axis.A1: m.a_speed, Axis.A2: m.a_speed}
+        level, percent = self.move_speed()
+        # The speed estimates are for the default level 4 at 100 %; slower settings get a
+        # longer time limit (faster ones keep it: a limit can't be too long to be safe).
+        factor = {a: min(1.0, max(0.05, p.speed_factor(a, level, percent))) for a in targets}
         t = max(
-            abs(self.from_steps(a, v - start.positions[a])) / speed[a] for a, v in targets.items()
+            abs(self.from_steps(a, v - start.positions[a])) / (speed[a] * factor[a]) for a, v in targets.items()
         )
         return m.min_timeout + t
 
@@ -367,7 +401,7 @@ class Machine:
         start_limits = start.inputs & LIMIT_BITS
         targets = self._quantize(targets, start)
         deadline = asyncio.get_running_loop().time() + self._estimate_timeout(targets, start)
-        await self._send(p.DEFAULT_SPEED_SETUP, p.encode_move(targets))
+        await self._send(self._speed_frame(), p.encode_move(targets))
         log.debug("move %s", {NAME_BY_AXIS[a]: v for a, v in targets.items()})
         stable, last = 0, None
         with self._fast_poll():
@@ -493,7 +527,7 @@ class Machine:
             start_limits = start.inputs & LIMIT_BITS
             loop = asyncio.get_running_loop()
             deadline = loop.time() + self._estimate_timeout(target, start)
-            await self._send(p.DEFAULT_SPEED_SETUP, p.encode_move(target))
+            await self._send(self._speed_frame(), p.encode_move(target))
             try:
                 with self._fast_poll():
                     while not released.is_set():
@@ -506,6 +540,13 @@ class Machine:
                 await self._send_stop(ax)
             await self._wait_settled(ax)
             return self.position()
+
+    async def set_panel_leds(self, mode: str) -> None:
+        """Front-panel speed lights to match the jog mode, as the vendor software does:
+        Dot (step, its "Low") = light 0x100 on / 0x080 off; Con (hold, its "High") = the reverse."""
+        on, off = (Output.FAST_MODE, Output.SLOW_MODE) if mode == "con" else (Output.SLOW_MODE, Output.FAST_MODE)
+        with contextlib.suppress(NotConnected):
+            await self.t.send(p.encode_outputs(False, off), p.encode_outputs(True, on))
 
     async def nozzle_down(self, nozzle: int, depth: float) -> dict[str, float]:
         """Lower nozzle 1 or 2 by `depth` mm (the other one goes up)."""
@@ -606,7 +647,7 @@ class Machine:
         for attempt in range(1, attempts + 1):
             await self._wait_settled(axis)
             start = (await self.refresh()).positions[axis]
-            await self._send(p.DEFAULT_SPEED_SETUP, p.encode_move({axis: target_from(start)}))
+            await self._send(p.DEFAULT_SPEED_SETUP, p.encode_move({axis: target_from(start)}))  # vendor homes at level 4
             loop = asyncio.get_running_loop()
             deadline = loop.time() + 0.6
             with self._fast_poll():

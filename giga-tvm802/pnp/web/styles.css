@@ -285,12 +285,16 @@ input.num[type="number"] { width: 84px; }
 
 /* ------------------------------------------------------------------ layout and cards */
 
+/* Pages use the full window width. Cards sit at their own height (align-items: start) rather
+   than stretching to the tallest card in their row, and dense packing lets a short card fill
+   a gap left by a wider one. Phones get one column (see the narrow-screen rules). */
 main {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr));
+  grid-auto-flow: row dense;
+  align-items: start;
   gap: var(--space-5);
   padding: var(--page-pad);
-  max-width: 1300px;
 }
 .card {
   background: var(--surface);
@@ -306,12 +310,6 @@ h3 { font: var(--type-caption); color: var(--text-muted); margin: var(--space-5)
 .card-head h2 { margin: 0; }
 .card-head .btn { margin-left: auto; }
 .wide-card { grid-column: 1 / -1; }
-/* The fiducial tables need room for name, X, Y and actions */
-#job-fiducials { grid-column: span 2; }
-@media (max-width: 700px) { #job-fiducials { grid-column: 1 / -1; } }
-
-/* Settings: one column of groups, capped at the reading width and left-aligned */
-#tab-settings { grid-template-columns: minmax(0, var(--content-max)); }
 
 /* Settings sits at the far right of the tab strip, with its icon */
 .tabs .spacer { flex: 1; }
@@ -445,6 +443,19 @@ h3 { font: var(--type-caption); color: var(--text-muted); margin: var(--space-5)
 /* ------------------------------------------------------------------ feeders */
 
 .table-wrap { overflow-x: auto; }
+/* Long tables scroll inside their own box, so the horizontal scrollbar sits at
+   the bottom of the visible area and the header row stays in view. The height
+   is capped to what is left below the sticky top bar (--topbar-h, set in app.js). */
+.table-wrap.table-scroll {
+  overflow: auto;
+  max-height: max(240px, calc(100vh - var(--topbar-h, 0px) - 10rem));
+}
+.table-scroll thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
+}
 table.feeders { width: 100%; border-collapse: collapse; font: var(--type-body); }
 table.feeders th {
   height: 28px;
@@ -581,12 +592,60 @@ td.problem { white-space: normal; min-width: 160px; }
 .dialog-form { display: flex; flex-direction: column; gap: var(--space-4); }
 .dialog-error { font: var(--type-small); color: var(--danger); }
 
+/* ------------------------------------------------------------------ wide screens */
+
+/* Below 1400 px the auto-fit base above gives three columns on a laptop and one on a phone,
+   so no spans are set there. From 1400 px the column count is fixed so the spans below always
+   fill whole rows: 3 columns, then 4 from 1800 px, then 6 from 2400 px. */
+
+/* 1400 px and up: 3 columns */
+@media (min-width: 1400px) {
+  main { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+  /* Job: Run, Import and Board share the first row; Fiducials (2) and Panel (1) the second */
+  #job-fiducials { grid-column: span 2; }
+
+  /* Feeders: the feeder form takes two columns, the Actions card the third */
+  #tab-feeders > section:nth-child(3) { grid-column: span 2; }
+
+  /* Settings: Appearance and Config side by side, Nozzle rules full width below */
+  #tab-settings { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #step-rules { grid-column: 1 / -1; }
+}
+
+/* 1800 px and up: 4 columns. Board is double width, and the feeder form and Actions cards
+   split the row evenly. */
+@media (min-width: 1800px) {
+  main { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  #job-board { grid-column: span 2; }
+  #job-panel { grid-column: span 2; }
+  #tab-feeders > section:nth-child(4) { grid-column: span 2; }
+}
+
+/* 2400 px and up: 6 columns. Run, Import and Board take a third each; Fiducials and Panel
+   share the second row. */
+@media (min-width: 2400px) {
+  main { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  #job-run, #job-import, #job-board { grid-column: span 2; }
+  #job-fiducials, #job-panel { grid-column: span 3; }
+  #tab-feeders > section:nth-child(3),
+  #tab-feeders > section:nth-child(4) { grid-column: span 3; }
+}
+
+/* Board card: the two reference points sit side by side once the card is wide enough
+   (the container is the card itself, so this follows its width, not the window's). */
+#job-board { container-type: inline-size; }
+@container (min-width: 640px) {
+  .ref-points { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
+}
+
 /* ------------------------------------------------------------------ narrow screens */
 
 @media (max-width: 640px) {
   main { gap: var(--space-4); }
   .tabs { gap: var(--space-5); overflow-x: auto; }
   .pad { grid-template-columns: repeat(3, 1fr); }
+  .table-wrap.table-scroll { max-height: none; }
 }
 
 
@@ -722,3 +781,79 @@ table.parts td.place-at { white-space: nowrap; color: var(--text-secondary); }
 .det-overlay .det-found { fill: none; stroke: #00e676; stroke-width: 2.5; vector-effect: non-scaling-stroke; }
 .det-label { margin: var(--space-1) 0 0; font: var(--type-mono); font-size: 12px; color: var(--success); max-width: calc(var(--cam-h, 240px) * 1.4); }
 .det-label.none { color: var(--warning, var(--text-muted)); }
+
+/* ---- machine controls in the pinned top bar, next to the camera views ---- */
+.ctrl-panel {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.ctrl {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  max-height: calc(var(--cam-h) + 34px);
+  overflow: auto;
+}
+.ctrl h3 { margin: 0; font: var(--type-label); color: var(--text-muted); }
+.ctrl .dro-grid { grid-template-columns: 22px 78px 18px; row-gap: 0; }
+.ctrl .dro-grid output { font: var(--type-mono); font-size: 15px; font-weight: 600; padding-right: var(--space-2); }
+.ctrl .leds { gap: var(--space-1); max-width: 190px; }
+.ctrl .led { font-size: 11px; padding: 1px 6px; }
+.ctrl .goto { display: flex; gap: var(--space-1); align-items: center; }
+.ctrl .goto input.num { width: 58px; height: var(--control-h-sm); }
+.ctrl .wide { width: 100%; justify-content: center; }
+.seg-small button { padding: 0 6px; height: 24px; font-size: 12px; }
+.seg-line { display: flex; align-items: center; gap: var(--space-2); }
+.seg-line > span { width: 12px; font: var(--type-label); color: var(--text-muted); }
+.ctrl .pad {
+  grid-template-columns: repeat(3, 46px);
+  grid-template-rows: repeat(3, 34px);
+  gap: 4px;
+  margin: 0;
+  justify-content: start;
+}
+.ctrl .pad .btn { padding: 0 4px; font-size: 12px; gap: 2px; }
+.panel-row { display: flex; align-items: center; gap: var(--space-2); }
+.ctrl .nozzles { gap: var(--space-1); margin: 0; }
+.ctrl .nozzle { gap: 4px; flex-wrap: nowrap; }
+.ctrl .nozzle strong { width: 20px; }
+.ctrl .toggles { grid-template-columns: 1fr 1fr; gap: 4px; }
+.ctrl .toggles .btn { height: 26px; padding: 0 8px; font-size: 12px; min-width: 0; }
+.ctrl-collapse { align-self: flex-start; }
+.ctrl-collapse.folded .icon { transform: rotate(180deg); }
+@media (max-width: 640px) { .ctrl-panel { flex-wrap: wrap; } }
+/* Camera cards as wide as their picture: the header (fps, size, sharpness) is cut short with
+   "…" (full text in the tooltip) instead of widening the card, so the controls fit beside. */
+.cam-strip .cam-card { width: min-content; }
+.cam-strip .cam-head { flex-wrap: nowrap; }
+.cam-strip .cam-status { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cam-strip .cam-head .btn { flex: none; }
+@media (min-width: 1280px) {
+  .cam-strip { flex-wrap: nowrap; }
+  .ctrl-panel { flex: 0 1 auto; overflow-x: auto; }
+}
+/* Columns keep their natural size (no squeezed scrollbars); the whole panel scrolls
+   sideways only if the window is too narrow. */
+.ctrl { flex: none; max-height: none; overflow: visible; }
+
+/* Banks side by side on wide screens (each bank panel needs ~560 px; an open
+   "Generate lanes" form makes its own panel taller without stretching the others). */
+#bank-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(560px, 100%), 1fr));
+  column-gap: var(--space-4);
+  align-items: start;
+}
+
+/* Laptop widths (3 columns below the 1800 px layout): the Board card and the feeder
+   form are the long ones, so they get two columns there as well. */
+@media (min-width: 1100px) and (max-width: 1799px) {
+  #job-board { grid-column: span 2; }
+  #tab-feeders > section:nth-child(3) { grid-column: span 2; }
+}

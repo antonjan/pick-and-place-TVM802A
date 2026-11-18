@@ -89,7 +89,7 @@ async def _measure_point(machine, camera, A, diameter: float, name: str, board: 
 
 
 async def measure_fiducials(job: Job, machine, camera, A, *, settle: float = 0.2,
-                            max_rms: float = 0.15, max_scale_error: float = 0.005,
+                            max_rms: float = 0.15, max_scale_error: float = 0.02,
                             log: Callable[[str], None] | None = None) -> Job:
     """Measure the job's fiducials and return a copy of the job fitted to them.
 
@@ -97,6 +97,10 @@ async def measure_fiducials(job: Job, machine, camera, A, *, settle: float = 0.2
     each measured board (job.board_fits) and sets origin and rotation from the first one, so that
     the panel formula reproduces that board. Raises AlignError when the job can't be measured or
     the fit is rejected; the input job is never modified. The head ends over the first fiducial.
+
+    The final fits include a scale (the marks' spacing against the design), so a board that is
+    a little larger or smaller than the file is placed correctly. The in-loop refinement stays
+    rigid: it only predicts where the head goes next.
     """
     _check_inputs(job, machine)
     say = log or (lambda _msg: None)
@@ -151,10 +155,11 @@ async def measure_fiducials(job: Job, machine, camera, A, *, settle: float = 0.2
     result = base
     fits: list[RigidFit] = []
     if mode == "panel":
-        fit = fit_rigid(panel_nominal, panel_measured, rotation_hint=job.rotation)
+        fit = fit_rigid(panel_nominal, panel_measured, rotation_hint=job.rotation, with_scale=True)
         _check_fit(fit, panel_labels, max_rms, max_scale_error)
         result.origin = (fit.origin[0], fit.origin[1])
         result.rotation = fit.rotation
+        result.scale = fit.scale
         fits.append(fit)
     else:
         result.board_fits = {}
@@ -162,19 +167,22 @@ async def measure_fiducials(job: Job, machine, camera, A, *, settle: float = 0.2
         for b in boards:
             nominal, measured, labels = per_board[b]
             hint = _wrap(job.rotation + job.boards[b].rotation)
-            fit = fit_rigid(nominal, measured, rotation_hint=hint)
+            fit = fit_rigid(nominal, measured, rotation_hint=hint, with_scale=True)
             _check_fit(fit, labels, max_rms, max_scale_error)
-            result.board_fits[b] = [float(fit.origin[0]), float(fit.origin[1]), float(fit.rotation)]
+            result.board_fits[b] = [float(fit.origin[0]), float(fit.origin[1]), float(fit.rotation),
+                                    float(fit.scale)]
             fits.append(fit)
             if first_fit is None:
                 first_fit = fit
-                # Panel formula for the first board: world = rot(R) @ (rot(inst) @ p + inst_xy) + O.
-                # Choose R and O so that this equals the board fit rot(fit.rotation) @ p + t.
+                # Panel formula for the first board, with the job scale s: world = O + rot(R) @ s @
+                # (rot(inst) @ p + inst_xy). Choose R, s and O so that this equals the board fit
+                # rot(fit.rotation) @ (s p) + t, i.e. R = fit.rotation - inst.rotation, s = fit.scale.
                 inst = job.boards[b]
                 R = _wrap(fit.rotation - inst.rotation)
                 rx, ry = _rot(R, inst.x, inst.y)
                 result.rotation = R
-                result.origin = (fit.origin[0] - rx, fit.origin[1] - ry)
+                result.scale = fit.scale
+                result.origin = (fit.origin[0] - fit.scale * rx, fit.origin[1] - fit.scale * ry)
 
     scales = [f.scale for f in fits]
     worst_scale = max(scales, key=lambda s: abs(s - 1.0))

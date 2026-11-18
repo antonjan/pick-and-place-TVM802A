@@ -149,7 +149,7 @@ async def locate_fiducial(machine, camera, A, diameter_mm: float, *, search_mm: 
 @dataclass
 class RigidFit:
     rotation: float                  # deg, in (-180, 180]
-    origin: tuple[float, float]      # translation t: world = rot(rotation) @ p + t
+    origin: tuple[float, float]      # translation t: world = scale * rot(rotation) @ p + t
     scale: float                     # from the similarity fit (1.0 = no scale error); 1.0 for 1 point
     residuals: list[float]           # mm, |rot @ p_i + t - w_i| for each point
     rms: float                       # mm
@@ -157,11 +157,13 @@ class RigidFit:
 
 
 def fit_rigid(nominal: list[tuple[float, float]], measured: list[tuple[float, float]],
-              rotation_hint: float = 0.0) -> RigidFit:
+              rotation_hint: float = 0.0, *, with_scale: bool = False) -> RigidFit:
     """Rigid transform (rotation and translation) mapping nominal points onto measured ones.
 
-    One point: the rotation is rotation_hint. Two or more: 2-D Kabsch fit. The
-    reported scale comes from a similarity fit and is not applied to the transform.
+    One point: the rotation is rotation_hint. Two or more: 2-D Kabsch fit. The scale comes
+    from a similarity fit. With with_scale=False (the default) it is only reported, and the
+    transform is rigid. With with_scale=True the transform is world = scale * rot @ p + t,
+    so the residuals are those of the scaled transform (a 1-point fit has scale 1).
     """
     P = np.asarray(nominal, dtype=float).reshape(-1, 2)
     Q = np.asarray(measured, dtype=float).reshape(-1, 2)
@@ -173,8 +175,8 @@ def fit_rigid(nominal: list[tuple[float, float]], measured: list[tuple[float, fl
     if len(P) == 1:
         angle = float(rotation_hint)
         R = _rot(angle)
-        t = Q[0] - R @ P[0]
         scale = 1.0
+        t = Q[0] - R @ P[0]
     else:
         spread = max(float(np.hypot(*(P[i] - P[j]))) for i in range(len(P)) for j in range(i + 1, len(P)))
         if spread < 5.0:
@@ -187,11 +189,13 @@ def fit_rigid(nominal: list[tuple[float, float]], measured: list[tuple[float, fl
         s_dot = float(np.sum(pp[:, 0] * qq[:, 0] + pp[:, 1] * qq[:, 1]))
         angle = math.degrees(math.atan2(s_cross, s_dot))
         R = _rot(angle)
-        t = qc - R @ pc
         rotated = pp @ R.T
         scale = float(np.sum(qq * rotated) / np.sum(pp * pp))
+        applied = scale if with_scale else 1.0
+        t = qc - applied * (R @ pc)
 
-    residuals = np.hypot(*(P @ R.T + t - Q).T)
+    applied = scale if with_scale else 1.0
+    residuals = np.hypot(*(applied * (P @ R.T) + t - Q).T)
     rms = float(np.sqrt(np.mean(residuals ** 2)))
     return RigidFit(
         rotation=_normalise_deg(angle),

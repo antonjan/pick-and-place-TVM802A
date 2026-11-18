@@ -69,6 +69,8 @@ class FrontPanel:
             self.m.panel["mode"] = "con" if self.m.panel["mode"] == "dot" else "dot"
             log.info("front panel: jog mode %s", self.m.panel["mode"])
             self.m._notify()
+            if hasattr(self.m, "set_panel_leds"):  # the panel's speed lights show the mode
+                self._spawn("speed lights", self.m.set_panel_leds(self.m.panel["mode"]))
         elif key == "step":
             if self.runner is not None:
                 self._spawn("step", self.runner.step())

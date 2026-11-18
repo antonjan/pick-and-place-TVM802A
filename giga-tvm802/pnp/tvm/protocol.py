@@ -159,16 +159,57 @@ COMMAND_LENGTHS: dict[int, int] = {
     Cmd.INIT_48: 4,
 }
 
-# Opaque speed/acceleration block the vendor software sends before every move.
-# Looks like 12 small ints followed by 6 speeds (4000, 3000, 5000, 4000, 5000, 4000).
-DEFAULT_SPEED_SETUP = bytes(
-    [0x06, 0x00, 0x04, 0x00]
-    + [0x03, 0, 0, 0, 0x03, 0, 0, 0, 0x03, 0, 0, 0, 0x04, 0, 0, 0,
-       0x03, 0, 0, 0, 0x04, 0, 0, 0, 0x03, 0, 0, 0, 0x03, 0, 0, 0,
-       0x03, 0, 0, 0, 0x04, 0, 0, 0, 0x03, 0, 0, 0, 0x04, 0, 0, 0]
-    + [0xA0, 0x0F, 0, 0, 0xB8, 0x0B, 0, 0, 0x88, 0x13, 0, 0,
-       0xA0, 0x0F, 0, 0, 0x88, 0x13, 0, 0, 0xA0, 0x0F, 0, 0]
+# Speed setup (0x06), from the vendor software (decompiled SucfaceMount.exe,
+# TcpControler.WriteSpeed_IMM, 2026-11-18). 76 bytes: 06 00 <level> 00, then six int32
+# accelerations, six decelerations and six velocities, one per frame slot (slot i =
+# AXIS_SLOT; slot 0 unused), read from the tables below at the speed level (0..11).
+# Each velocity is scaled by a percentage (the vendor's per-component "Speed").
+# The vendor UI shows level n as "(n+1)0%"; its default is level 4 ("50%"), which is
+# exactly the block this app (and the Node bridge) always sent.
+SPEED_LEVELS = 12
+SPEED_ACC: tuple[tuple[int, ...], ...] = (
+    (3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4),
+    (3, 3, 3, 3, 3, 3, 4, 6, 8, 10, 12, 15),
+    (3, 4, 5, 3, 3, 3, 4, 5, 6, 7, 7, 10),
+    (3, 3, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7),
+    (3, 4, 5, 3, 3, 3, 3, 4, 5, 6, 6, 7),
+    (3, 3, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7),
 )
+SPEED_DEC = SPEED_ACC  # the vendor's deceleration table is identical
+SPEED_VEL: tuple[tuple[int, ...], ...] = (
+    (1000, 1500, 2000, 3000, 4000, 4500, 5000, 5000, 5500, 6000, 8000, 8000),
+    (1, 500, 1000, 2000, 3000, 4000, 5000, 7000, 9000, 11000, 17000, 17000),
+    (1, 500, 1500, 2500, 5000, 9000, 12000, 15000, 17000, 18000, 20000, 20000),
+    (500, 1000, 2000, 3000, 4000, 5000, 7000, 9000, 11000, 14000, 20000, 20000),
+    (1, 500, 1500, 2500, 5000, 9000, 12000, 15000, 17000, 18000, 20000, 20000),
+    (500, 1000, 2000, 3000, 4000, 5000, 7000, 9000, 11000, 14000, 20000, 20000),
+)
+DEFAULT_SPEED_LEVEL = 4
+
+
+def speed_velocity(axis: "Axis", level: int, percent: int = 100) -> float:
+    """The velocity value the speed setup gives `axis` (units of the controller)."""
+    return SPEED_VEL[AXIS_SLOT[axis]][level] * percent / 100
+
+
+def speed_factor(axis: "Axis", level: int, percent: int = 100) -> float:
+    """How fast `axis` moves at (level, percent) relative to the default level 4 at 100 %."""
+    return speed_velocity(axis, level, percent) / speed_velocity(axis, DEFAULT_SPEED_LEVEL)
+
+
+def encode_speed(level: int = DEFAULT_SPEED_LEVEL, percent: int = 100) -> bytes:
+    """The 76-byte speed setup the vendor software sends for a speed level and percentage."""
+    if not 0 <= int(level) < SPEED_LEVELS:
+        raise ValueError(f"speed level must be 0..{SPEED_LEVELS - 1}, got {level}")
+    if not 1 <= int(percent) <= 100:
+        raise ValueError(f"speed percent must be 1..100, got {percent}")
+    level, percent = int(level), int(percent)
+    words = [SPEED_ACC[i][level] for i in range(6)] + [SPEED_DEC[i][level] for i in range(6)]
+    words += [SPEED_VEL[i][level] * percent // 100 for i in range(6)]
+    return bytes([Cmd.SPEED_SETUP, 0, level, 0]) + b"".join(struct.pack("<i", w) for w in words)
+
+
+DEFAULT_SPEED_SETUP = encode_speed()
 
 
 # --------------------------------------------------------------------------- encoders

@@ -3,6 +3,9 @@
 A strip feeder holds parts in pockets along a tape; part n sits `n * pitch`
 further along `direction` from `pick`. A drag feeder has one fixed pick
 position; a needle on the head pulls the tape by one pitch between picks.
+A tray feeder holds a matrix of parts (an IC tray): `pick` is the first part,
+`tray_end` the last part, and parts are taken row by row. Like a strip it never
+needs a feed.
 """
 
 from __future__ import annotations
@@ -18,7 +21,10 @@ from typing import Any
 
 import yaml
 
-KINDS = ("strip", "drag")
+KINDS = ("strip", "drag", "tray")
+
+# Largest tray grid per side. Keeps a typo (e.g. 1000 columns) from making an empty tray look real.
+MAX_TRAY_SIDE = 100
 
 
 class FeederError(Exception):
@@ -45,8 +51,8 @@ def _unit(direction: tuple[float, float]) -> tuple[float, float]:
 class Feeder:
     id: str                          # unique, e.g. "F1"
     name: str = ""
-    kind: str = "strip"              # "strip" | "drag"
-    pick: tuple[float, float] = (0.0, 0.0)       # world mm, see pick_location()
+    kind: str = "strip"              # "strip" | "drag" | "tray"
+    pick: tuple[float, float] = (0.0, 0.0)       # world mm, see pick_location(); tray: first part
     direction: tuple[float, float] = (1.0, 0.0)  # unit vector along the tape (normalised on load)
     pitch: float = 4.0               # mm between pockets
     count: int = 0                   # parts taken so far
@@ -55,6 +61,9 @@ class Feeder:
     pick_depth: float = 3.0          # nozzle depth to touch the part (mm)
     prick: tuple[float, float] | None = None     # drag: world mm where the needle enters the tape
     needs_feed: bool = True          # drag: True when the pick pocket is empty
+    tray_end: tuple[float, float] | None = None  # tray: world mm of the last part (opposite corner)
+    tray_cols: int = 1               # tray: parts per row (along X)
+    tray_rows: int = 1               # tray: rows (along Y)
     enabled: bool = True
     value: str = ""                  # part value / package, matched against jobs later
     package: str = ""
@@ -66,18 +75,40 @@ class Feeder:
         self.direction = _unit(_pair(self.direction, "direction"))
         if self.prick is not None:
             self.prick = _pair(self.prick, "prick")
+        if self.tray_end is not None:
+            self.tray_end = _pair(self.tray_end, "tray_end")
 
     def pick_location(self) -> tuple[float, float]:
         """World point where the next part is picked."""
         if self.kind == "drag":
             return self.pick
+        if self.kind == "tray":
+            return self._tray_location(self.count)
         px, py = self.pick
         dx, dy = self.direction
         k = self.count * self.pitch
         return (px + k * dx, py + k * dy)
 
+    def _tray_location(self, index: int) -> tuple[float, float]:
+        """World point of part `index` in a tray, numbered row by row from `pick`."""
+        px, py = self.pick
+        if self.tray_end is None:
+            return (px, py)  # validate() refuses a bigger grid without tray_end
+        ex, ey = self.tray_end
+        col, row = index % self.tray_cols, index // self.tray_cols
+        # A single column or row has no spacing to divide: every part sits on the first line.
+        x = px + col * (ex - px) / (self.tray_cols - 1) if self.tray_cols > 1 else px
+        y = py + row * (ey - py) / (self.tray_rows - 1) if self.tray_rows > 1 else py
+        return (x, y)
+
+    def tray_capacity(self) -> int:
+        """Parts in a tray (columns times rows)."""
+        return self.tray_cols * self.tray_rows
+
     def remaining(self) -> int | None:
-        """Parts left in a strip with known capacity; None otherwise."""
+        """Parts left in a strip with known capacity or in a tray; None otherwise."""
+        if self.kind == "tray":
+            return max(self.tray_capacity() - self.count, 0)
         if self.kind != "strip" or self.capacity is None:
             return None
         return max(self.capacity - self.count, 0)
@@ -106,6 +137,11 @@ class Feeder:
             raise ValueError(f"feeder {self.id}: direction must not be zero")
         if self.kind == "drag" and self.prick is None:
             raise ValueError(f"feeder {self.id}: drag feeder needs a prick position")
+        for name, side in (("tray_cols", self.tray_cols), ("tray_rows", self.tray_rows)):
+            if not 1 <= side <= MAX_TRAY_SIDE:
+                raise ValueError(f"feeder {self.id}: {name} must be 1 to {MAX_TRAY_SIDE}, got {side}")
+        if self.kind == "tray" and self.tray_end is None and (self.tray_cols > 1 or self.tray_rows > 1):
+            raise ValueError(f"feeder {self.id}: tray feeder needs a tray_end (last part) position")
 
 
 _FEEDER_KEYS = {f.name for f in dataclasses.fields(Feeder)}

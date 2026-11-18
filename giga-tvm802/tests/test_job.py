@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
+from pnp.config import HeadConfig
 from pnp.job.feeders import Feeder
 from pnp.job.job import (
     BoardInstance,
@@ -13,13 +14,16 @@ from pnp.job.job import (
     Job,
     JobPart,
     JobStore,
+    PlanItem,
     clear_fit,
+    export_job_yaml,
     fit_rotation,
     grid,
     is_fiducial,
     job_from_pos,
     match_feeder,
     norm,
+    parse_job_yaml,
     placement_key,
     plan,
     to_world,
@@ -349,6 +353,26 @@ def test_plan_empty_feeder():
     assert item.problem == "Feeder F5 is empty"
 
 
+def tray_feeder(id, value, package="", cols=2, rows=2, count=0) -> Feeder:
+    # 2 x 2 tray: first part at (0, 0), last part at (4, 4)
+    return Feeder(id=id, kind="tray", pick=(0.0, 0.0), tray_end=(4.0, 4.0), tray_cols=cols,
+                  tray_rows=rows, count=count, value=value, package=package)
+
+
+def test_plan_tray_feeder_matches_without_problem():
+    job = two_feeder_job([part("U1", "1u", "SOIC")])
+    (item,) = plan(job, [tray_feeder("T1", "1u", "SOIC")], simple_rules())
+    assert item.feeder == "T1"
+    assert item.problem is None
+
+
+def test_plan_empty_tray_is_empty_problem():
+    job = two_feeder_job([part("U1", "1u", "SOIC")])
+    (item,) = plan(job, [tray_feeder("T1", "1u", "SOIC", count=4)], simple_rules())
+    assert item.feeder == "T1"
+    assert item.problem == "Feeder T1 is empty"
+
+
 def test_plan_no_origin():
     job = two_feeder_job([part("U1", "1u", "SOIC", x=1.0, y=2.0)], origin=None)
     (item,) = plan(job, feeders_for_order(), simple_rules())
@@ -496,9 +520,10 @@ def test_job_store_writes_plain_yaml(tmp_path):
     assert data["parts"][0]["ref"] == "R1"
     assert data["status"] == {"0:R1": "placed", "1:U1": "failed"}
     assert set(data) == {
-        "name", "source", "origin", "rotation", "boards", "parts", "status",
+        "name", "source", "origin", "rotation", "scale", "boards", "parts", "status",
         "fiducials", "fiducial_mode", "fiducial_diameter", "fit", "board_fits",
         "references", "reference_board",  # two-point board alignment (2026-11-13)
+        "pcb_thickness",  # bed depth place model
     }
 
 
@@ -779,3 +804,285 @@ def test_placements_outside_the_machine_are_listed():
     assert {r for r, _, _ in out} == {"C3", "C21", "C16", "R7"}
     job.origin = (-80.0, 160.0)  # a fit that puts the board on the bed
     assert placements_outside(job, (-120.0, 299.0), (-75.0, 350.5)) == []
+
+
+# ---------------------------------------------------------------- scale correction
+
+def test_to_world_panel_scale_multiplies_the_whole_panel_point():
+    # panel point = board point rotated by 0 and offset by (20, 5) = (30, 5); scaled 1.01 = (30.3, 5.05);
+    # job rotation 90 deg: (x, y) -> (-y, x) = (-5.05, 30.3)
+    job = Job(name="j", origin=(0.0, 0.0), rotation=90.0, scale=1.01, boards=[BoardInstance(x=20.0, y=5.0)])
+    assert close_xy(to_world(job, 0, 10.0, 0.0), (-5.05, 30.3))
+
+
+def test_to_world_scale_default_is_identity():
+    job = Job(name="j", origin=(150.0, 150.0), boards=[BoardInstance(x=50.0)])
+    assert job.scale == 1.0
+    assert close_xy(to_world(job, 0, 10.0, 0.0), (210.0, 150.0))
+
+
+def test_to_world_board_fit_with_scale():
+    s, r = 0.9966, 0.4
+    job = Job(name="j", board_fits={0: [150.35, 149.75, r, s]})
+    a = math.radians(r)
+    expected = (150.35 + math.cos(a) * 10.0 * s - math.sin(a) * 4.0 * s,
+                149.75 + math.sin(a) * 10.0 * s + math.cos(a) * 4.0 * s)
+    assert close_xy(to_world(job, 0, 10.0, 4.0), expected, tol=1e-9)
+    # world_rotation does not depend on the scale
+    assert world_rotation(job, 0, 30.0) == pytest.approx(30.4)
+
+
+def test_fit_two_points_recovers_origin_rotation_and_scale():
+    from pnp.job.job import fit_two_points
+    origin, rot, s = (152.3, 101.7), 0.7, 0.9966
+    a, b = (4.0, 3.0), (38.0, 22.5)
+
+    def world(p):  # the camera sees the board scaled by s, then rotated and moved
+        return _world(origin, rot, (s * p[0], s * p[1]))
+
+    r = fit_two_points(a, world(a), b, world(b))
+    assert r["scale"] == pytest.approx(s, abs=1e-9)
+    assert r["rotation"] == pytest.approx(rot, abs=1e-9)
+    assert r["origin"] == pytest.approx(list(origin), abs=1e-9)
+    # both points map exactly through to_world with the fitted job values
+    job = Job(name="j", origin=tuple(r["origin"]), rotation=r["rotation"], scale=r["scale"], boards=[BoardInstance()])
+    assert close_xy(to_world(job, 0, *a), world(a), tol=1e-9)
+    assert close_xy(to_world(job, 0, *b), world(b), tol=1e-9)
+
+
+def test_old_three_value_board_fit_loads_and_maps_as_before(tmp_path):
+    store = JobStore(tmp_path / "job.yaml")
+    (tmp_path / "job.yaml").write_text(
+        "name: old\norigin: [0, 0]\nboards:\n  - x: 0\n    y: 0\nboard_fits:\n  0: [150.35, 149.75, 0.4]\n")
+    job = store.load()
+    assert job.board_fits == {0: [150.35, 149.75, 0.4]}
+    assert job.scale == 1.0
+    wx, wy = to_world(job, 0, 10.0, 0.0)
+    assert wx == pytest.approx(160.34976, abs=1e-5)
+    assert wy == pytest.approx(149.81981, abs=1e-5)
+    # saving keeps the three values
+    store.save(job)
+    assert yaml.safe_load((tmp_path / "job.yaml").read_text())["board_fits"] == {0: [150.35, 149.75, 0.4]}
+
+
+def test_four_value_board_fit_round_trips(tmp_path):
+    store = JobStore(tmp_path / "job.yaml")
+    job = Job(name="j", board_fits={1: [1.0, 2.0, 0.5, 0.9977]})
+    store.save(job)
+    assert store.load().board_fits == {1: [1.0, 2.0, 0.5, 0.9977]}
+
+
+def test_job_scale_round_trips_and_missing_key_loads_as_one(tmp_path):
+    store = JobStore(tmp_path / "job.yaml")
+    job = sample_job()
+    job.scale = 0.9966
+    store.save(job)
+    assert store.load().scale == pytest.approx(0.9966)
+    data = yaml.safe_load((tmp_path / "job.yaml").read_text())
+    data.pop("scale")
+    (tmp_path / "job.yaml").write_text(yaml.safe_dump(data))
+    assert store.load().scale == 1.0
+
+
+@pytest.mark.parametrize("text", [
+    "name: j\nscale: 1.2\n",
+    "name: j\nscale: 0.5\n",
+    "name: j\nscale: abc\n",
+    "name: j\nboard_fits:\n  0: [1, 2, 0, 0.5]\n",
+    "name: j\nboard_fits:\n  0: [1, 2]\n",
+    "name: j\nboard_fits:\n  0: [1, 2, 0, 1, 1]\n",
+])
+def test_scale_outside_limits_or_bad_board_fit_is_refused(tmp_path, text):
+    (tmp_path / "job.yaml").write_text(text)
+    with pytest.raises(ValueError):
+        JobStore(tmp_path / "job.yaml").load()
+
+
+# --- place depth from bed depth, PCB thickness and part height -----------------
+
+class HeightRules(FakeRules):
+    """FakeRules plus package heights, as PackageRules.height_for gives them."""
+
+    def __init__(self, heights=None, **kw):
+        super().__init__(**kw)
+        self.heights = heights or {}
+
+    def height_for(self, package):
+        return self.heights.get(package)
+
+
+def bed_head(**kw) -> HeadConfig:
+    return HeadConfig(bed_depth=kw.pop("bed_depth", 8.0), **kw)
+
+
+def test_plan_explicit_rule_place_depth_wins_over_bed_depth():
+    job = two_feeder_job([part("U1", "1u", "SOIC")])
+    (item,) = plan(job, feeders_for_order(), simple_rules(), head=bed_head())
+    assert item.place_depth == 2.5  # the SOIC rule's own depth, not 8 - 1.6 - 0.5
+
+
+def test_plan_place_depth_from_bed_depth_thickness_and_part_height():
+    job = two_feeder_job([part("R1", "100n", "0603")])
+    (item,) = plan(job, feeders_for_order(), simple_rules(), head=bed_head())
+    assert item.place_depth == pytest.approx(8.0 - 1.6 - 0.5)  # head.part_height default
+    assert item.height == pytest.approx(0.5)
+    assert item.problem is None
+
+
+def test_plan_part_height_and_pcb_thickness_used():
+    job = two_feeder_job([part("R1", "100n", "0603", height=1.2)])
+    job.pcb_thickness = 1.0
+    (item,) = plan(job, feeders_for_order(), simple_rules(), head=bed_head())
+    assert item.place_depth == pytest.approx(8.0 - 1.0 - 1.2)
+    assert item.height == pytest.approx(1.2)
+
+
+def test_plan_rule_height_used_when_part_has_none():
+    rules = HeightRules(heights={"0603": 0.9}, nozzles={"0603": 2})
+    job = two_feeder_job([part("R1", "100n", "0603")])
+    (item,) = plan(job, feeders_for_order(), rules, head=bed_head())
+    assert item.height == pytest.approx(0.9)
+    assert item.place_depth == pytest.approx(8.0 - 1.6 - 0.9)
+
+
+def test_plan_part_height_beats_rule_height():
+    rules = HeightRules(heights={"0603": 0.9}, nozzles={"0603": 2})
+    job = two_feeder_job([part("R1", "100n", "0603", height=0.3)])
+    (item,) = plan(job, feeders_for_order(), rules, head=bed_head())
+    assert item.height == pytest.approx(0.3)
+
+
+def test_plan_head_part_height_is_the_fallback():
+    job = two_feeder_job([part("R1", "100n", "0603")])
+    (item,) = plan(job, feeders_for_order(), simple_rules(), head=bed_head(part_height=0.7))
+    assert item.height == pytest.approx(0.7)
+    assert item.place_depth == pytest.approx(8.0 - 1.6 - 0.7)
+
+
+def test_plan_bed_depth_zero_keeps_the_default_place_depth():
+    job = two_feeder_job([part("R1", "100n", "0603")])
+    (item,) = plan(job, feeders_for_order(), simple_rules(), head=HeadConfig(bed_depth=0.0))
+    assert item.place_depth is None  # runner then uses head.place_depth, as before
+    (item,) = plan(job, feeders_for_order(), simple_rules())
+    assert item.place_depth is None
+    assert item.height == pytest.approx(0.5)  # the height is still reported
+
+
+def test_plan_negative_computed_depth_is_a_problem():
+    job = two_feeder_job([part("R1", "100n", "0603", height=2.0)])
+    (item,) = plan(job, feeders_for_order(), simple_rules(), head=bed_head(bed_depth=2.0))
+    assert item.place_depth == pytest.approx(2.0 - 1.6 - 2.0)
+    assert item.problem == "Place depth below 0: check bed depth, PCB thickness and part height"
+
+
+def test_plan_negative_depth_problem_only_for_pending_items():
+    job = two_feeder_job([part("R1", "100n", "0603", height=2.0)], status={"0:R1": "placed"})
+    (item,) = plan(job, feeders_for_order(), simple_rules(), head=bed_head(bed_depth=2.0))
+    assert item.problem is None
+
+
+def test_plan_explicit_rule_depth_is_not_checked_for_sign_here():
+    # An explicit rule depth is validated by PackageRules (> 0); the computed-depth check is only for computed depths.
+    job = two_feeder_job([part("U1", "1u", "SOIC")])
+    (item,) = plan(job, feeders_for_order(), simple_rules(), head=bed_head(bed_depth=0.5))
+    assert item.place_depth == 2.5 and item.problem is None
+
+
+def test_plan_item_height_has_a_default():
+    item = PlanItem(key="0:R1", board=0, ref="R1", value="", package="", x=None, y=None, rotation=0.0,
+                    nozzle=1, feeder=None, place_depth=None, status="pending", problem=None)
+    assert item.height == 0.0
+
+
+def test_job_pcb_thickness_defaults_and_round_trips(tmp_path):
+    store = JobStore(tmp_path / "job.yaml")
+    store.save(Job(name="j"))
+    assert store.load().pcb_thickness == 1.6
+    job = Job(name="j", pcb_thickness=0.8)
+    store.save(job)
+    assert store.load().pcb_thickness == 0.8
+
+
+def test_job_pcb_thickness_absent_loads_as_default(tmp_path):
+    path = tmp_path / "job.yaml"
+    path.write_text("name: old\n")
+    assert JobStore(path).load().pcb_thickness == 1.6
+
+
+@pytest.mark.parametrize("value", [0, -1, 10.5, "abc", float("nan")])
+def test_job_rejects_bad_pcb_thickness(tmp_path, value):
+    path = tmp_path / "job.yaml"
+    path.write_text(f"name: j\npcb_thickness: {value!r}\n" if not isinstance(value, float) or value == value
+                    else "name: j\npcb_thickness: .nan\n")
+    with pytest.raises(ValueError, match="pcb_thickness"):
+        JobStore(path).load()
+
+
+def test_job_part_height_loads_and_validates(tmp_path):
+    path = tmp_path / "job.yaml"
+    path.write_text("name: j\nparts:\n"
+                    "  - {ref: R1, value: 10k, package: R, x: 0, y: 0, rotation: 0}\n"
+                    "  - {ref: R2, value: 10k, package: R, x: 0, y: 0, rotation: 0, height: 1.5}\n")
+    job = JobStore(path).load()
+    assert job.parts[0].height is None
+    assert job.parts[1].height == 1.5
+    for bad in ("-0.1", "30.5"):
+        path.write_text(f"name: j\nparts:\n  - {{ref: R1, value: 10k, package: R, x: 0, y: 0, rotation: 0, height: {bad}}}\n")
+        with pytest.raises(ValueError, match="height"):
+            JobStore(path).load()
+
+
+def _edited_job() -> Job:
+    return Job(
+        name="Board A",
+        source="a.pos",
+        parts=[
+            JobPart(ref="R1", value="10k", package="R_0805", x=1.5, y=2.0, rotation=90.0, side="top",
+                    skip=True, nozzle=2, feeder="F1", vision=False, speed=50, height=1.2),
+            JobPart(ref="C1", value="100n", package="C_0603", x=10.0, y=-3.25, rotation=0.0, speed=100),
+            JobPart(ref="R4", value="1k", package="R_0603", x=4.0, y=5.0, rotation=180.0, side="bottom", skip=True),
+        ],
+        boards=[BoardInstance(x=0.0, y=0.0), BoardInstance(x=50.0, y=0.0, rotation=90.0, skip=True)],
+        origin=(120.5, -40.25),
+        rotation=12.5,
+        scale=1.002,
+        status={"0:R1": "placed", "1:C1": "failed"},
+        fiducials=[Fiducial(name="FID1", x=2.0, y=2.0), Fiducial(name="FID2", x=40.0, y=2.0)],
+        fiducial_mode="board",
+        fiducial_diameter=1.5,
+        fit={"rms": 0.02, "rotation": 0.1, "origin": [120.5, -40.25]},
+        board_fits={0: [120.5, -40.25, 12.5], 1: [170.0, -40.0, 12.5, 1.001]},
+        references=[{"ref": "R1", "x": 1.5, "y": 2.0}, {"ref": None, "x": 10.0, "y": 10.0}],
+        reference_board=1,
+        pcb_thickness=0.8,
+    )
+
+
+def test_job_file_round_trip_keeps_every_edit():
+    job = _edited_job()
+    text = export_job_yaml(job)
+    header = yaml.safe_load(text)
+    assert header["format"] == "tvm802-job" and header["version"] == 1
+    back = parse_job_yaml(text)
+    assert back == job
+    assert export_job_yaml(back) == text  # exporting again gives the same file
+
+
+@pytest.mark.parametrize("text, match", [
+    ("name: j\n", "not a job file exported from this app"),
+    ("- just\n- a list\n", "not a job file exported from this app"),
+    (yaml.safe_dump({"format": "tvm802-feeders", "version": 1, "feeders": []}), "not a job file"),
+    (yaml.safe_dump({"format": "tvm802-job", "version": 2, "job": {"name": "j"}}), "version"),
+    (yaml.safe_dump({"format": "tvm802-job", "version": 1}), "no job"),
+    (yaml.safe_dump({"format": "tvm802-job", "version": 1, "job": 5}), "mapping"),
+    (yaml.safe_dump({"format": "tvm802-job", "version": 1, "job": {"source": "x"}}), "without a name"),
+    (yaml.safe_dump({"format": "tvm802-job", "version": 1, "job": {"name": "j", "bogus": 1}}), "unknown"),
+    (yaml.safe_dump({"format": "tvm802-job", "version": 1, "job": {"name": "j", "scale": 1.5}}), "scale"),
+    (yaml.safe_dump({"format": "tvm802-job", "version": 1,
+                     "job": {"name": "j", "parts": [{"ref": "R1"}]}}), "part 0"),
+    (yaml.safe_dump({"format": "tvm802-job", "version": 1, "job": {"name": "j", "parts": 7}}), "not valid"),
+    ("format: [unclosed", "not a valid YAML"),
+])
+def test_job_file_bad_content_is_refused_with_a_reason(text, match):
+    with pytest.raises(ValueError, match=match):
+        parse_job_yaml(text)
