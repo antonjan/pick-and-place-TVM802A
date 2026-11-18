@@ -39,7 +39,7 @@ motion:
   allow_unhomed_jog: true
   max_unhomed_jog: 10
 
-  job_speed_level: 5
+  job_speed_level: 4
 server:
   host: 127.0.0.1
   port: 8080

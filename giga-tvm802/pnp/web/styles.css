@@ -632,13 +632,6 @@ td.problem { white-space: normal; min-width: 160px; }
   #tab-feeders > section:nth-child(4) { grid-column: span 3; }
 }
 
-/* Board card: the two reference points sit side by side once the card is wide enough
-   (the container is the card itself, so this follows its width, not the window's). */
-#job-board { container-type: inline-size; }
-@container (min-width: 640px) {
-  .ref-points { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
-}
-
 /* ------------------------------------------------------------------ narrow screens */
 
 @media (max-width: 640px) {
@@ -690,18 +683,18 @@ td.problem { white-space: normal; min-width: 160px; }
 #confirm-msg { white-space: pre-line; }
 
 
-/* ---- Board card: two-point reference alignment ---- */
-.ref-points { display: grid; gap: var(--space-3); margin-bottom: var(--space-3); }
-.ref-row { display: grid; gap: var(--space-2); }
-.ref-cols { display: flex; flex-wrap: wrap; gap: var(--space-3); }
-.ref-set {
-  display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-3);
-  margin: 0; padding: var(--space-2) var(--space-3) var(--space-3);
-  border: 1px solid var(--border-subtle); border-radius: var(--radius-md);
-}
-.ref-set legend { padding: 0 var(--space-1); font: var(--type-label); color: var(--text-muted); }
-.ref-row label { display: flex; flex-direction: column; gap: var(--space-1); font: var(--type-label); color: var(--text-secondary); }
-.ref-row input.num { width: 96px; }
+/* ---- Board card: board marks (two marks per board, a row per board) ---- */
+table.marks th { white-space: nowrap; }
+table.marks input.num[type="number"] { width: 76px; min-width: 0; }
+table.marks td, table.marks th { padding-left: var(--space-1); padding-right: var(--space-1); }
+table.marks th[colspan] { text-align: left; border-bottom: 1px solid var(--border-subtle); }
+table.marks select.mark-part { width: auto; min-width: 84px; }
+table.marks .mark-actions { white-space: nowrap; }
+table.marks .mark-result { min-width: 220px; }
+table.marks tbody tr { cursor: default; }
+table.marks tbody tr.skipped { opacity: 0.5; }
+.mark-ok { color: var(--success); }
+.mark-err { color: var(--danger); }
 
 
 /* ---- pinned camera strip: part of the sticky top bar, visible on every tab ---- */
@@ -857,3 +850,6 @@ table.parts td.place-at { white-space: nowrap; color: var(--text-secondary); }
   #job-board { grid-column: span 2; }
   #tab-feeders > section:nth-child(3) { grid-column: span 2; }
 }
+
+/* The Board card holds the board marks table (a row per board): always the full width. */
+main > #job-board { grid-column: 1 / -1; }

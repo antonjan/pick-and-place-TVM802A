@@ -8,6 +8,7 @@ import logging
 import math
 import re
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import Response
@@ -30,8 +31,11 @@ from pnp.job.job import (
     fit_rotation,
     grid,
     job_from_pos,
+    mark_results,
     parse_job_yaml,
     plan,
+    refit_board,
+    sync_board_marks,
     to_world,
 )
 from pnp.job.kicad import PosError, parse_pos
@@ -155,6 +159,26 @@ class FiducialGotoIn(BaseModel):
     board: int = 0
 
 
+class MarkIn(BaseModel):
+    """One mark's fields. Only the fields sent are changed; null clears one. Checked by hand (400, not 422)."""
+    x: Any = None      # board mm of the mark in the position file
+    y: Any = None
+    mx: Any = None     # measured machine mm
+    my: Any = None
+    ref: Any = None    # part reference the mark was taken from
+
+
+class MarksIn(BaseModel):
+    m1: MarkIn | None = None
+    m2: MarkIn | None = None
+
+
+class MarkCaptureIn(BaseModel):
+    centre: bool = False                 # centre the down camera on the mark first
+    mark_mm: list[float] | None = None   # diameter range for the centring; None = 0.3-4 mm
+    method: str = "auto"                 # blob, circle or auto (as Centre on mark)
+
+
 PLACEMENT_STATUSES = ("pending", "skipped", "placed")
 
 
@@ -176,6 +200,10 @@ def _job_dict(job: Job) -> dict:
         "references": [dict(r) for r in job.references],
         "reference_board": int(job.reference_board),
         "pcb_thickness": float(job.pcb_thickness),
+        "board_marks": [{"m1": dict(e["m1"]), "m2": dict(e["m2"]), "error": e.get("error")}
+                        for e in job.board_marks],
+        "mark_fits": {str(k): [float(v) for v in vals] for k, vals in job.mark_fits.items()},
+        "mark_results": mark_results(job),
     }
 
 
@@ -256,6 +284,17 @@ def add_job_routes(app: FastAPI, machine, job_path: Path, rules_path: Path) -> N
             "plan": [dataclasses.asdict(i) for i in items_of(job)],
             "status": runner.status(),
         }
+
+    def board_index(job: Job, board: int) -> int:
+        if not 0 <= board < len(job.boards):
+            raise HTTPException(400, f"no board {board}")
+        return board
+
+    def refit_marks(job: Job) -> None:
+        """Refit every board's mark fit (after the marks or the panel changed)."""
+        lim = machine.cfg.limits
+        for b in range(len(job.boards)):
+            refit_board(job, b, lim.x, lim.y)
 
     def find_part(job: Job, ref: str) -> JobPart:
         for part in job.parts:
@@ -367,17 +406,25 @@ def add_job_routes(app: FastAPI, machine, job_path: Path, rules_path: Path) -> N
 
     @app.post("/api/job/align/two-points")
     async def align_two_points(body: TwoPointIn):
-        """Board origin AND rotation from two reference points recorded with the camera."""
+        """Board origin AND rotation from two reference points recorded with the camera.
+
+        One board: the panel origin, rotation and scale. Several boards: the points fit the
+        selected board alone (job.board_fits, from its board X/Y), and the panel transform
+        follows the lowest measured board, so boards not measured yet still get a position."""
         from pnp.job.job import (check_distances, check_reference_point, check_scale, fit_two_points,
-                                 placements_outside)
+                                 panel_from_board_fit, placements_outside)
 
         idle()
         need_homed()
         job = need_job()
         if not 0 <= body.board < len(job.boards):
             raise HTTPException(400, f"no board {body.board + 1}")
-        a_panel = _panel_point(job, body.board, body.a.x, body.a.y)
-        b_panel = _panel_point(job, body.board, body.b.x, body.b.y)
+        per_board = len(job.boards) > 1
+        if per_board:
+            a_panel, b_panel = (body.a.x, body.a.y), (body.b.x, body.b.y)  # the board fit maps board X/Y
+        else:
+            a_panel = _panel_point(job, body.board, body.a.x, body.a.y)
+            b_panel = _panel_point(job, body.board, body.b.x, body.b.y)
         try:
             check_reference_point(job, "Point 1", body.a.x, body.a.y)
             check_reference_point(job, "Point 2", body.b.x, body.b.y)
@@ -387,22 +434,33 @@ def add_job_routes(app: FastAPI, machine, job_path: Path, rules_path: Path) -> N
             check_scale(result["scale"])  # the distance check alone allows more on a short A-B
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
-        old = (job.origin, job.rotation, job.scale)
-        job.origin = (result["origin"][0], result["origin"][1])
-        job.rotation = result["rotation"]
-        job.scale = result["scale"]
+        old = (job.origin, job.rotation, job.scale, job.board_fits, job.fit)
+        if per_board:
+            fit = [float(result["origin"][0]), float(result["origin"][1]), float(result["rotation"]),
+                   float(result["scale"])]
+            job.board_fits = {**job.board_fits, body.board: fit}  # the other boards' fits are kept
+            job.fit = None  # the fiducial summary no longer describes the panel
+            (ox, oy), job.rotation, job.scale = panel_from_board_fit(job, min(job.board_fits))
+            job.origin = (ox, oy)
+        else:
+            job.origin = (result["origin"][0], result["origin"][1])
+            job.rotation = result["rotation"]
+            job.scale = result["scale"]
         lim = machine.cfg.limits
         outside = placements_outside(job, lim.x, lim.y)
         if outside:
-            job.origin, job.rotation, job.scale = old  # not saved: keep the previous board position
+            # not saved: keep the previous board position and fits
+            job.origin, job.rotation, job.scale, job.board_fits, job.fit = old
             first = ", ".join(f"{r} at X {x:.1f}, Y {y:.1f}" for r, x, y in outside[:3])
             raise HTTPException(400, f"with these points {len(outside)} part(s) would land outside the machine "
                                      f"({first}). Check both points' board X/Y and their camera captures.")
         job.references = [{"ref": p.ref or None, "x": p.x, "y": p.y} for p in (body.a, body.b)]
         job.reference_board = body.board
-        clear_fit(job)
+        if not per_board:
+            clear_fit(job)
         jobs.save(job)
-        return {**state_json(), "alignment": result}
+        alignment = {**result, "board": body.board, "boards_aligned": sorted(job.board_fits)}
+        return {**state_json(), "alignment": alignment}
 
     @app.post("/api/job/align/rotation")
     async def align_rotation(body: AlignRotationIn):
@@ -429,7 +487,9 @@ def add_job_routes(app: FastAPI, machine, job_path: Path, rules_path: Path) -> N
         if not 1 <= len(body.boards) <= MAX_BOARDS:
             raise HTTPException(400, f"a panel has 1 to {MAX_BOARDS} boards, got {len(body.boards)}")
         job.boards = [BoardInstance(**b.model_dump()) for b in body.boards]
+        sync_board_marks(job)
         clear_fit(job)
+        refit_marks(job)  # new offsets: the panel follows the first measured board again
         jobs.save(job)
         return state_json()
 
@@ -441,7 +501,9 @@ def add_job_routes(app: FastAPI, machine, job_path: Path, rules_path: Path) -> N
             job.boards = grid(body.rows, body.cols, body.step_x, body.step_y)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
+        sync_board_marks(job)
         clear_fit(job)
+        refit_marks(job)  # new offsets: the panel follows the first measured board again
         jobs.save(job)
         return state_json()
 
@@ -516,6 +578,10 @@ def add_job_routes(app: FastAPI, machine, job_path: Path, rules_path: Path) -> N
         for point in job.references:
             if point.get("ref") == ref:
                 point["ref"] = None
+        for entry in job.board_marks:
+            for name in ("m1", "m2"):
+                if entry[name]["ref"] == ref:
+                    entry[name]["ref"] = None
         jobs.save(job)
         return state_json()
 
@@ -550,6 +616,93 @@ def add_job_routes(app: FastAPI, machine, job_path: Path, rules_path: Path) -> N
         running()
         job = need_job()
         job.status = {}
+        jobs.save(job)
+        return state_json()
+
+    # ------------------------------------------------------------ board marks
+
+    def mark_number(value: Any, what: str) -> float | None:
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            raise HTTPException(400, f"{what} must be a number")
+        return float(value)
+
+    @app.put("/api/job/marks/{board}")
+    async def put_marks(board: int, body: MarksIn):
+        """Set one board's two marks (board X/Y, measured machine X/Y, part) and refit that board."""
+        running()
+        job = need_job()
+        b = board_index(job, board)
+        for name in ("m1", "m2"):
+            given = getattr(body, name)
+            if given is None:
+                continue
+            mark = job.board_marks[b][name]
+            for key in given.model_fields_set:
+                if key == "ref":
+                    if given.ref is not None and not isinstance(given.ref, str):
+                        raise HTTPException(400, f"{name} ref must be text")
+                    mark["ref"] = given.ref or None
+                else:
+                    mark[key] = mark_number(getattr(given, key), f"{name} {key}")
+        lim = machine.cfg.limits
+        refit_board(job, b, lim.x, lim.y)
+        jobs.save(job)
+        return state_json()
+
+    @app.post("/api/job/marks/design-to-all")
+    async def marks_design_to_all():
+        """Copy board 1's design X/Y and parts of both marks to every board (their measurements stay)."""
+        running()
+        job = need_job()
+        src = job.board_marks[0]
+        for entry in job.board_marks[1:]:
+            for name in ("m1", "m2"):
+                entry[name]["x"] = src[name]["x"]
+                entry[name]["y"] = src[name]["y"]
+                entry[name]["ref"] = src[name]["ref"]
+        refit_marks(job)
+        jobs.save(job)
+        return state_json()
+
+    @app.post("/api/job/marks/{board}/{mark}/capture")
+    async def capture_mark(board: int, mark: str, body: MarkCaptureIn | None = None):
+        """Record the head position as mark m1 or m2 of a board (centring on the mark first when asked)."""
+        idle()
+        need_homed()
+        job = need_job()
+        b = board_index(job, board)
+        if mark not in ("m1", "m2"):
+            raise HTTPException(400, "mark must be m1 or m2")
+        body = body or MarkCaptureIn()
+        if body.centre:
+            camera, A = down_camera()
+            if camera is None:
+                raise HTTPException(409, "the down camera is not available")
+            if A is None:
+                raise HTTPException(409, "calibrate the down camera first")
+            await app.state.centre_camera("down", polarity="auto", mark_mm=body.mark_mm, method=body.method)
+        job = need_job()  # the centring moved the head; re-read the job before changing it
+        x, y = head_xy()
+        target = job.board_marks[b][mark]
+        target["mx"], target["my"] = x, y
+        lim = machine.cfg.limits
+        refit_board(job, b, lim.x, lim.y)
+        jobs.save(job)
+        return state_json()
+
+    @app.post("/api/job/marks/clear")
+    async def marks_clear():
+        """Forget every measured machine position and mark fit. The design X/Y stay."""
+        running()
+        job = need_job()
+        for entry in job.board_marks:
+            for name in ("m1", "m2"):
+                entry[name]["mx"] = None
+                entry[name]["my"] = None
+        job.mark_fits = {}
+        refit_marks(job)
         jobs.save(job)
         return state_json()
 

@@ -206,7 +206,7 @@ This is the usual sequence for a work session. The sections that follow give the
 3. Click **Home** (machine controls at the top).
 4. Make sure that the two nozzles are level. If they are not, see [7.9](#79-set-the-z-zero).
 5. Install the feeder stacks. On the Feeders tab, load the layout of each stack, or import a feeder file (see [7.3](#73-change-a-stack) and [7.4](#74-export-and-import-the-feeders)).
-6. On the Job tab, import the KiCad position file and set the board with two reference points (see [7.6](#76-run-a-job)).
+6. On the Job tab, import the KiCad position file and capture the two board marks of each board (see [7.6](#76-run-a-job)).
 7. Click **Go to** on one part in the **Parts** table. Make sure that the crosshair is on the part position.
 8. Do one test pick and place on the Feeders tab if you changed a feeder. Make sure that the part rotation is correct (see [7.13](#713-set-the-rotation-of-a-feeder)).
 9. Click **Start job**, or press **Step** to place the first part one stage at a time (see [7.12](#712-run-a-job-one-stage-at-a-time)).
@@ -297,13 +297,16 @@ Use the Job tab to place a full board or panel.
   - **Job speed** sets the speed of the moves while placing: 20 % to 120 % (the speed levels of the vendor software). 50 % is the default. A higher speed also accelerates harder.
   - **Nozzles** shows what each nozzle holds. **Reset nozzles** turns the vacuum off, lifts the two nozzles and clears what they hold. Use it after a bad pick. The head does not move in X and Y.
 - **Import:** reads a KiCad position file (`.pos` or `.csv`), or a job file that you exported from this application (`.yaml`). For a job file, **Reset statuses** (on by default) sets all parts to "to do". The fiducial measurement is not kept: measure the fiducials again for the board on the machine.
-- **Export job** (next to **Delete job**) saves the current job with all your changes (parts on or off, removed parts, positions, rotations, heights, speeds, nozzle, feeder and vision choices, panel, reference points, fiducials, PCB thickness) to a `.yaml` file. Import the file again to continue with the same setup later.
-- **Board:** sets the board position and rotation from two **reference points** that you measure with the down camera (see [7.6](#76-run-a-job)).
-  - **Scale** shows the board scale that the reference points or the fiducials measured (1.00000 = no correction). The application applies it to all placements, as the vendor software does.
+- **Export job** (next to **Delete job**) saves the current job with all your changes (parts on or off, removed parts, positions, rotations, heights, speeds, nozzle, feeder and vision choices, panel, board marks, fiducials, PCB thickness) to a `.yaml` file. Import the file again to continue with the same setup later.
+- **Board:** sets the position, rotation and scale of each board from two **board marks** that you measure with the down camera, as the vendor software does (see [7.6](#76-run-a-job)).
+  - **Board marks** is a table with one row for each board of the panel. For each of the two marks it shows the **board position** (Board X/Y, in the coordinates of the file) next to the **machine position** that you captured (Machine X/Y). **Result** shows the rotation, the scale and the distance error of the board, or the reason why the marks were not accepted.
+  - **Copy board 1 marks to all boards** copies the board positions of board 1 to the other boards. The machine positions stay.
+  - **Clear measurements** removes all the machine positions.
+  - **Scale** shows the board scale that the board marks or the fiducials measured (1.00000 = no correction). The application applies it to all placements, as the vendor software does.
   - **PCB thickness mm** (default 1.6) is used for the place depth when the bed depth is set (see [7.14](#714-set-the-place-depth-from-the-board-and-the-parts)).
-  - **Capture camera** puts the camera position in the machine position fields of the point.
-  - **Centre on mark** moves the camera to the centre of the round mark nearest to the crosshair (a hole, a cut-out, a pad or a fiducial). Then it captures the position. **Mark Ø** sets the size of the mark: 0.3–4 mm, 0.3–1.5 mm, 1–4 mm or 3–8 mm.
-  - The card shows the area of the parts in the coordinates of the file. The two points must be in these coordinates.
+  - **Capture** puts the camera position in the machine position fields of the mark.
+  - **Centre** moves the camera to the centre of the round mark nearest to the crosshair (a hole, a cut-out, a pad or a fiducial). Then it captures the position. **Mark Ø** sets the size of the mark: 0.3–4 mm, 0.3–1.5 mm, 1–4 mm or 3–8 mm.
+  - The card shows the area of the parts in the coordinates of the file. The two marks must be in these coordinates.
 - **Fiducials:** the fiducial marks of the board. The application measures them with the down camera and corrects the board origin and rotation (see [7.7](#77-use-fiducials)).
 - **Panel:** a grid of boards (rows, columns, step X, step Y). You can skip a bad board.
 - **Parts:** a table of all parts on all boards. For each part you can:
@@ -464,17 +467,19 @@ Procedure:
 2. Go to the Job tab.
 3. In **Import**, select the file and click **Import file**.
 4. In **Panel**, set the rows, the columns and the step. Click **Make grid**. For one board, use 1 row and 1 column.
-5. Set the board with two reference points. In the **Board** card, find **Reference points**:
-   1. For each point, type its **board position** in the coordinates of the file, or select a part to use its centre. Round holes or cut-outs are the most accurate points. Do not use the corners of the board: you cannot put the camera exactly on a corner.
-   2. Move the down camera near the point. Select the **Mark Ø** and click **Centre on mark**. For a point that is not round, put the crosshair on it and click **Capture camera**. The **machine position** fields get the camera position. Do not type the board position in the machine position fields.
-   3. Do steps 1 and 2 for **Point 2**. Use two points that are far apart, for example two holes in opposite corners. They must be at least 3 mm apart.
-   4. Select the **Board** of the panel that you measured.
-   5. Click **Set board from points 1 and 2**.
-   6. Read the result. It compares the distance between the two points on the board with the measured distance. The two values must be almost the same.
+5. Capture the two board marks of each board. In the **Board** card, find **Board marks** (one row for each board):
+   1. In the row of board 1, type the **Board X** and **Board Y** of **Mark 1** in the coordinates of the file, or select a **Part** to use its centre. Do the same for **Mark 2**. Round holes or cut-outs are the most accurate marks. Do not use the corners of the board: you cannot put the camera exactly on a corner. Use two marks that are far apart, for example two holes in opposite corners. They must be at least 3 mm apart.
+   2. For a panel, click **Copy board 1 marks to all boards**. All the boards then use the same two marks.
+   3. Move the down camera near mark 1 of board 1. Select the **Mark Ø** and click **Centre** in the Mark 1 columns. For a mark that is not round, put the crosshair on it and click **Capture**. **Machine X** and **Machine Y** get the camera position. Do not type the board position in the machine position fields.
+   4. Do step 3 for **Mark 2** of the same board.
+   5. Read the **Result** of the board. It shows ✓ with the rotation, the scale and the difference (Δ) between the distance of the two marks on the board and the measured distance. Δ must be small.
+   6. Do steps 3 to 5 for each of the other boards.
    7. Click **Go to** on one part in the **Parts** table. Make sure that the crosshair is on the part.
 
-   The application does not set the board if:
-   - A point is more than 40 mm from all parts of the file. The message tells you why: for example, the Y of the file has the wrong sign, or 0, 0 is not on the board.
+   Each board is placed from its own two marks, so the panel steps do not have to be exact. A board that is not measured yet follows the first measured board through the panel grid. Changes to **Save board**, the panel (for example, skip a board), or the fiducials do not remove the measurements.
+
+   The application does not use the marks of a board (the **Result** shows the reason in red) if:
+   - A mark is more than 40 mm from all parts of the file. The message tells you why: for example, the Y of the file has the wrong sign, or 0, 0 is not on the board.
    - The two distances are different by more than 1 mm (or 2 %).
    - Parts would be outside the soft limits of the machine.
 
@@ -482,7 +487,7 @@ Procedure:
 6. Look at the **Parts** table. Make sure that no part shows a problem. Skip a part, select a different feeder or set **Vision** if necessary.
 7. Click **Start job**.
 
-The reference points are saved with the job. The machine positions are not saved: capture them again each time you put a board on the machine.
+The board marks and their machine positions are saved with the job. Capture the machine positions again each time you put a board on the machine.
 
 During the job:
 
@@ -521,7 +526,7 @@ Fiducials are small round copper marks on the board. The application finds them 
 
 When you import a KiCad file, the application finds the fiducials automatically. A part is a fiducial if its reference starts with `FID` (for example `FID1`), or if its package name contains `Fiducial`.
 
-1. Import the job and set the board with the reference points (see [7.6](#76-run-a-job)). An error of 1 to 2 mm is satisfactory.
+1. Import the job and capture the board marks (see [7.6](#76-run-a-job)). An error of 1 to 2 mm is satisfactory.
 2. On the Job tab, find the **Fiducials** card.
 3. Select the mode:
    - **Panel:** the application measures the fiducials on the first board and on the last board. It calculates one position for the full panel.
@@ -748,7 +753,7 @@ After a bad pick, the application can think that a nozzle holds a part. On the J
 ### 9.7 Parts are placed at the wrong position
 
 1. Click **Go to** on a placed part in the **Parts** table.
-2. If the crosshair is not on the part position, the board position is not correct. Set the reference points again on round holes with **Centre on mark** (see [7.6](#76-run-a-job)).
+2. If the crosshair is not on the part position, the board position is not correct. Capture the board marks again on round holes with **Centre** (see [7.6](#76-run-a-job)).
 3. If the crosshair is on the part position but the part is not, the error comes from the pick. Turn on **Vision** for the part, or calibrate the nozzle offsets again (see [7.1](#71-calibrate-the-machine)).
 
 ### 9.8 Parts are placed with the wrong rotation
@@ -846,6 +851,7 @@ Changes, 18 November 2026:
 - **Place depth from the board:** bed depth, PCB thickness and part height (see [7.14](#714-set-the-place-depth-from-the-board-and-the-parts)).
 - **IC tray feeder** (see [7.15](#715-use-an-ic-tray)).
 - **Job export and import:** **Export job** saves the job with all changes; **Import** loads it again.
+- **Board marks for each board (as the vendor software):** the Board card shows a table with one row for each board. Each row shows the board position of the two marks next to the machine position that you captured. Each board is placed from its own two marks. Save board, panel changes and fiducial settings do not remove the measurements.
 - **Pick with both nozzles** (see [7.16](#716-pick-with-both-nozzles)).
 - **Speed:** the speed command of the vendor software is known (12 levels, with a percentage for each part). Set the **Job speed** on the Run card and a **Speed %** for each part. Manual moves use the jog speed level on the Defaults tab. The default, 50 %, is the speed that the application always used. The move time limits become longer at lower speeds.
 - **Front panel speed lights** show the Dot or Con jog mode, as in the vendor software.

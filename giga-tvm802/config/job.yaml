@@ -1,11 +1,15 @@
 name: Voip_Board-all
 source: Voip_Board-all.pos
 origin:
-- 50.28678720486941
-- -40.52799956366892
-rotation: 0.05576538963174471
-scale: 0.9980710879506802
+- 50.31582238054
+- -40.556519214462966
+rotation: 0.031360427499286914
+scale: 0.9980012538038634
 boards:
+- x: 0.0
+  y: 0.0
+  rotation: 0.0
+  skip: false
 - x: 0.0
   y: 0.0
   rotation: 0.0
@@ -512,9 +516,9 @@ parts:
   y: 21.7613
   rotation: 270.0
   side: top
-  skip: true
+  skip: false
   nozzle: null
-  feeder: null
+  feeder: L1
   vision: false
   speed: 100
   height: null
@@ -1331,7 +1335,7 @@ parts:
   y: 27.7877
   rotation: 270.0
   side: top
-  skip: false
+  skip: true
   nozzle: null
   feeder: L26
   vision: null
@@ -1351,9 +1355,10 @@ parts:
   speed: 100
   height: null
 status:
-  0:U4: placed
+  0:C39: placed
+  1:C39: placed
 fiducials: []
-fiducial_mode: 'off'
+fiducial_mode: board
 fiducial_diameter: 1.0
 fit: null
 board_fits: {}
@@ -1364,5 +1369,43 @@ references:
 - ref: null
   x: 62.817
   y: 86.049
-reference_board: 0
+reference_board: 1
 pcb_thickness: 1.6
+board_marks:
+- m1:
+    x: 4.041
+    y: 4.108
+    mx: 54.34650085345038
+    my: -36.45452328700317
+    ref: null
+  m2:
+    x: 62.817
+    y: 86.049
+    mx: 112.96025359668374
+    my: 45.35479151426481
+    ref: null
+  error: null
+- m1:
+    x: 4.041
+    y: 4.108
+    mx: 121.25091441111924
+    my: -36.42404291636186
+    ref: null
+  m2:
+    x: 62.817
+    y: 86.049
+    mx: 179.92562789563522
+    my: 45.659595220677886
+    ref: null
+  error: null
+mark_fits:
+  0:
+  - 50.31582238054
+  - -40.556519214462966
+  - 0.031360427499286914
+  - 0.9980012538038634
+  1:
+  - 117.2143751246613
+  - -40.54098927260455
+  - 0.09394664620018034
+  - 1.0005652870125263

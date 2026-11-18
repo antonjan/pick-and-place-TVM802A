@@ -19,10 +19,7 @@ let jobTimer = null;
 let boardDirty = false;    // board fields were edited and not saved yet
 let partsSig = "";
 let boardRowsSig = "";
-let refsSig = "";
-// Two-point alignment: point 1 (origin) and point 2, each a board X/Y and a machine
-// X/Y (captured from the camera, editable).
-let refsLoadedFor = null;  // job name whose saved reference points were put in the fields
+let marksSig = "";         // board marks table: last rendered state (renderMarkRows)
 
 // Where the parts are in the position file's coordinates (the frame the reference points use).
 function partsExtent(job) {
@@ -32,32 +29,16 @@ function partsExtent(job) {
   return { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
 }
 
-function originNearParts(job) {
-  const e = partsExtent(job);
-  if (!e) return true;
-  return Math.hypot(Math.max(e.x0, 0, -e.x1), Math.max(e.y0, 0, -e.y1)) <= 40;
-}
-
 function renderExtent(job) {
-  const el = $("#ref-extent");
+  const el = $("#marks-extent");
   const e = partsExtent(job);
   el.hidden = !e;
   if (e) {
     el.textContent = `Parts in this file: X ${e.x0.toFixed(1)} to ${e.x1.toFixed(1)}, Y ${e.y0.toFixed(1)} to ${e.y1.toFixed(1)} mm. `
-      + "Both points must be in these coordinates (on or near the board).";
+      + "Both marks of each board must be in these coordinates (on or near the board).";
   }
 }
 
-function refRow(k) {
-  return document.querySelector(`.ref-row[data-refpt="${k}"]`);
-}
-
-function refMachine(k) {
-  const row = refRow(k);
-  const x = parseFloat(row.querySelector(".ref-mx").value);
-  const y = parseFloat(row.querySelector(".ref-my").value);
-  return Number.isFinite(x) && Number.isFinite(y) ? [x, y] : null;
-}
 let fidMeasuring = false;  // a measure request is running (drives the button label)
 let fidRowsSig = "";
 let fidPointsSig = "";
@@ -141,7 +122,7 @@ function renderJob() {
   renderRun(job);
   renderImport(job);
   renderBoardForm(job);
-  renderRefPoints(job);
+  renderMarks(job);
   renderBoardRows(job);
   renderFiducials(job);
   renderParts(job, plan);
@@ -213,109 +194,126 @@ function renderBoardForm(job) {
   $("#job-rot").value = job ? round3(job.rotation) : "";
 }
 
-function renderRefPoints(job) {
-  const parts = job ? job.parts : [];
-  const refs = [...new Set(parts.map((p) => p.ref))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  const sig = JSON.stringify([refs, job ? job.boards.length : 0]);
-  if (sig !== refsSig) {
-    refsSig = sig;
-    for (const row of $$(".ref-row")) {
-      const sel = row.querySelector(".ref-part");
-      const prev = sel.value;
-      sel.replaceChildren(optionEl("", "Custom"), ...refs.map((r) => optionEl(r, r)));
-      if (refs.includes(prev)) sel.value = prev;
-    }
-    const bsel = $("#ref-board");
-    const prevB = bsel.value;
-    const n = job ? job.boards.length : 1;
-    bsel.replaceChildren(...Array.from({ length: n }, (_, k) => optionEl(String(k), `Board ${k + 1}`)));
-    if (prevB !== "" && Number(prevB) < n) bsel.value = prevB;
-  }
+// Board marks: each board has two marks (board X/Y from the position file, measured machine
+// X/Y) and is placed from its own fit. One row per board; the server refits on every change.
+function renderMarks(job) {
   renderExtent(job);
-  // Put the job's saved reference points in the fields once per job.
-  if (job && refsLoadedFor !== job.name) {
-    refsLoadedFor = job.name;
-    const saved = (job.references || []).slice(0, 2);
-    for (const [k, r] of [["a", saved[0]], ["b", saved[1]]]) {
-      const row = refRow(k);
-      // Point 1 defaults to 0, 0 only when that is on the board in the file's coordinates
-      // (exported with the drill/place origin); otherwise both start empty.
-      const def = k === "a" && originNearParts(job) ? { ref: null, x: 0, y: 0 } : { ref: null, x: "", y: "" };
-      const p = r || def;
-      row.querySelector(".ref-part").value = p.ref && refs.includes(p.ref) ? p.ref : "";
-      row.querySelector(".ref-x").value = p.x;
-      row.querySelector(".ref-y").value = p.y;
-      row.querySelector(".ref-mx").value = "";  // machine positions are captured fresh each time
-      row.querySelector(".ref-my").value = "";
-    }
-    if (job.reference_board != null && job.reference_board < (job.boards || []).length) {
-      $("#ref-board").value = String(job.reference_board);
-    }
-  }
+  renderMarkRows(job);
 }
 
-function refPartChanged(row) {
-  const ref = row.querySelector(".ref-part").value;
-  const part = ref && jobData && jobData.job ? jobData.job.parts.find((p) => p.ref === ref) : null;
-  if (part) {
-    row.querySelector(".ref-x").value = part.x;
-    row.querySelector(".ref-y").value = part.y;
-  }
+function renderMarkRows(job) {
+  const refs = [...new Set(job ? job.parts.map((p) => p.ref) : [])]
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const sig = JSON.stringify([job ? job.board_marks : [], job ? job.mark_results : [],
+    job ? job.boards.map((b) => !!b.skip) : [], refs]);
+  const tbody = $("#mark-rows");
+  // A field being typed in is left alone; the next poll redraws the table.
+  const typing = !!document.activeElement && tbody.contains(document.activeElement)
+    && document.activeElement.matches("input, select");
+  if (sig === marksSig || typing) return;
+  marksSig = sig;
+  tbody.replaceChildren(...(job ? job.board_marks.map((entry, b) => markRow(job, b, entry, refs)) : []));
 }
 
-// Centre the down camera on the round mark nearest the crosshair, then capture the point.
-async function centreRef(row) {
-  const [lo, hi] = $("#ref-mark-size").value.split(",").map(Number);
-  const n = row.dataset.refpt === "a" ? "1" : "2";
-  const res = await jobCall(`Point ${n}: centre on mark`, "/api/calibrate/down/centre",
-                            { polarity: "auto", mark_mm: [lo, hi], method: "auto" });  // holes too
-  if (res && res.position) recordRef(row);
+function markRow(job, b, entry, refs) {
+  const board = job.boards[b];
+  const res = job.mark_results[b] || {};
+  const tr = elem("tr", board.skip ? "skipped" : "");
+  tr.dataset.board = String(b);
+  tr.append(cell(b + 1, "mono"), ...markCells(entry.m1, "m1", refs), ...markCells(entry.m2, "m2", refs),
+            markResultCell(board, res));
+  return tr;
 }
 
-function recordRef(row) {
-  if (!state) return;
-  row.querySelector(".ref-mx").value = state.position.x.toFixed(3);
-  row.querySelector(".ref-my").value = state.position.y.toFixed(3);
-  updateJobButtons(jobData && jobData.job);
-  const n = row.dataset.refpt === "a" ? "1" : "2";
-  log(`point ${n}: camera at X ${state.position.x.toFixed(3)}, Y ${state.position.y.toFixed(3)}`);
+// Six cells for one mark: part, board X, board Y, machine X, machine Y, actions.
+function markCells(mark, name, refs) {
+  const n = name === "m1" ? 1 : 2;
+  const sel = elem("select", "mark-part");
+  sel.dataset.mark = name;
+  sel.setAttribute("aria-label", `Part for mark ${n}`);
+  sel.append(optionEl("", "Custom"), ...refs.map((r) => optionEl(r, r)));
+  sel.value = mark.ref && refs.includes(mark.ref) ? mark.ref : "";
+  const cells = [tdWith(sel)];
+  for (const [field, label] of [["x", "Board X"], ["y", "Board Y"], ["mx", "Machine X"], ["my", "Machine Y"]]) {
+    const inp = elem("input", "num");
+    inp.type = "number";
+    inp.step = "any";
+    inp.value = mark[field] == null ? "" : round3(mark[field]);
+    inp.placeholder = field.startsWith("m") ? "capture" : "board";
+    inp.dataset.mark = name;
+    inp.dataset.field = field;
+    inp.setAttribute("aria-label", `${label}, mark ${n}`);
+    cells.push(tdWith(inp));
+  }
+  const actions = elem("td", "mark-actions");
+  for (const [action, icon, text, title] of [
+    ["capture", "crosshair", "Capture", "Record the camera's current position as this mark's machine position"],
+    ["centre", "scan", "Centre", "Centre the camera on the round mark nearest the crosshair (size from Mark Ø), then record it"],
+  ]) {
+    const btn = buttonEl(text, action === "centre" ? "btn btn-ghost" : "btn", icon);
+    btn.dataset.mark = name;
+    btn.dataset.action = action;
+    btn.title = title;
+    actions.append(btn);
+  }
+  cells.push(actions);
+  return cells;
 }
 
-async function applyTwoPoints() {
-  const pts = {};
-  for (const row of $$(".ref-row")) {
-    const k = row.dataset.refpt;
-    const name = k === "a" ? "Point 1" : "Point 2";
-    const x = parseFloat(row.querySelector(".ref-x").value);
-    const y = parseFloat(row.querySelector(".ref-y").value);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) {
-      showError(`${name}: enter its board X and Y (or pick a part).`);
-      return;
-    }
-    const m = refMachine(k);
-    if (!m) {
-      showError(`${name}: centre the camera on it and press Capture camera (or type the machine X and Y).`);
-      return;
-    }
-    pts[k] = { ref: row.querySelector(".ref-part").value || null, x, y, world_x: m[0], world_y: m[1] };
+function markResultCell(board, res) {
+  const td = elem("td", "mark-result");
+  let node;
+  if (board.skip) node = elem("span", "", "skipped");
+  else if (res.error) node = elem("span", "mark-err", res.error);
+  else if (res.ok) {
+    node = elem("span", "mark-ok", `✓ rot ${fmt(res.rotation, 3)}° · scale ${fmt(res.scale, 5)} · `
+      + `Δ ${fmt(res.distance_error, 2)} mm`);
+  } else node = elem("span", "", "–");
+  td.append(node);
+  return td;
+}
+
+function saveMark(b, body) {
+  return jobCall(`Board ${b + 1} marks`, `/api/job/marks/${b}`, body, "PUT");
+}
+
+// A board X/Y or machine X/Y typed in: empty clears it.
+function saveMarkField(b, name, field, input) {
+  const text = input.value.trim();
+  const value = text === "" ? null : Number(text);
+  if (value !== null && !Number.isFinite(value)) {
+    showError("Enter a number, or leave the field empty to clear it");
+    return null;
   }
-  const res = await jobCall("Set board from points 1 and 2", "/api/job/align/two-points",
-                            { board: Number($("#ref-board").value || 0), a: pts.a, b: pts.b });
-  if (res && res.alignment) {
-    boardDirty = false;
-    const al = res.alignment;
-    const err = al.distance_error;
-    const out = $("#ref-result");
-    out.hidden = false;
-    const scalePct = (al.scale - 1) * 100;
-    out.textContent = `Origin (${al.origin[0].toFixed(3)}, ${al.origin[1].toFixed(3)}) · rotation ${al.rotation.toFixed(3)}° · ` +
-      `scale ${al.scale.toFixed(5)} (${scalePct >= 0 ? "+" : "−"}${Math.abs(scalePct).toFixed(2)} %) · ` +
-      `point 1 to 2: ${al.board_distance.toFixed(3)} mm on the board, ${al.measured_distance.toFixed(3)} mm measured ` +
-      `(${err >= 0 ? "+" : ""}${err.toFixed(3)} mm)` +
-      (Math.abs(err) > 0.3 ? " — large difference: check you centred on the right features" : "");
-    log(`board aligned: rotation ${al.rotation.toFixed(3)}°, distance check ${err >= 0 ? "+" : ""}${err.toFixed(3)} mm`,
-        Math.abs(err) > 0.3);
-  }
+  return saveMark(b, { [name]: { [field]: value } });
+}
+
+// A part picked: its file X/Y and reference fill in the mark; Custom keeps the X/Y as they are.
+function markPartChanged(b, name, sel) {
+  const part = sel.value ? currentPart(sel.value) : undefined;
+  return saveMark(b, { [name]: part ? { ref: part.ref, x: part.x, y: part.y } : { ref: null } });
+}
+
+// Record the camera position as a mark, or centre on the nearest round mark first (Mark Ø range).
+function captureMark(b, name, centre) {
+  const n = name === "m1" ? 1 : 2;
+  const mark_mm = centre ? $("#ref-mark-size").value.split(",").map(Number) : null;
+  return jobCall(`Board ${b + 1} mark ${n}: ${centre ? "centre and capture" : "capture"}`,
+                 `/api/job/marks/${b}/${name}/capture`, { centre, mark_mm, method: "auto" });
+}
+
+function copyMarksToAll() {
+  return jobCall("Copy board 1 marks to all boards", "/api/job/marks/design-to-all");
+}
+
+async function clearMarks() {
+  const ok = await confirmDialog({
+    title: "Clear all measurements?",
+    body: "Every board's captured machine positions and its mark fit are removed. The board X/Y and the parts stay.",
+    confirmLabel: "Clear measurements",
+  });
+  if (!ok) return;
+  await jobCall("Clear measurements", "/api/job/marks/clear");
 }
 
 function renderBoardRows(job) {
@@ -801,9 +799,10 @@ function updateJobButtons(job) {
   for (const el of $$("#job-board input, #job-save-board, #job-panel input, #job-grid, #job-boards input")) {
     el.disabled = noJob;
   }
-  for (const el of $$(".ref-row select, #ref-board")) el.disabled = noJob;
-  for (const el of $$(".ref-record, .ref-centre")) el.disabled = noJob || !jobReady();
-  $("#ref-apply").disabled = noJob || !jobReady() || !refMachine("a") || !refMachine("b");
+  for (const el of $$("#ref-mark-size, .mark-part")) el.disabled = noJob;
+  for (const el of $$(".mark-actions button")) el.disabled = noJob || !jobReady();
+  $("#marks-copy").disabled = noJob || job.boards.length < 2;
+  $("#marks-clear").disabled = noJob || !job.board_marks.some((e) => ["m1", "m2"].some((n) => e[n].mx != null));
   updateFiducialControls(job);
 }
 
@@ -994,15 +993,18 @@ function initJob() {
   }
   $("#job-save-board").addEventListener("click", saveBoard);
   $("#job-pcb").addEventListener("change", savePcbThickness);
-  for (const row of $$(".ref-row")) {
-    row.querySelector(".ref-part").addEventListener("change", () => refPartChanged(row));
-    row.querySelector(".ref-record").addEventListener("click", () => recordRef(row));
-    row.querySelector(".ref-centre").addEventListener("click", () => centreRef(row));
-    for (const f of row.querySelectorAll(".ref-mx, .ref-my")) {
-      f.addEventListener("input", () => updateJobButtons(jobData && jobData.job));
-    }
-  }
-  $("#ref-apply").addEventListener("click", applyTwoPoints);
+  $("#marks-copy").addEventListener("click", copyMarksToAll);
+  $("#marks-clear").addEventListener("click", clearMarks);
+  const markRows = $("#mark-rows");
+  markRows.addEventListener("change", (e) => {
+    const b = Number(e.target.closest("tr").dataset.board);
+    if (e.target.matches("select.mark-part")) markPartChanged(b, e.target.dataset.mark, e.target);
+    else saveMarkField(b, e.target.dataset.mark, e.target.dataset.field, e.target);
+  });
+  markRows.addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-action]");
+    if (btn) captureMark(Number(btn.closest("tr").dataset.board), btn.dataset.mark, btn.dataset.action === "centre");
+  });
   $("#job-grid").addEventListener("click", makeGrid);
 
   for (const b of $$("#fid-mode button")) b.addEventListener("click", () => setFiducialMode(b.dataset.mode));

@@ -261,22 +261,30 @@ def add_vision_routes(app: FastAPI, machine, cameras: CameraManager | None, cali
         log.info("%s camera scale calibrated: rms %.3f px", name, result["rms_px"])
         return result
 
-    @app.post("/api/calibrate/{name}/centre")
-    async def calibrate_centre(name: str, req: CentreReq):
+    async def centre_camera(name: str, *, polarity: str = "auto", mark_mm: list[float] | None = None,
+                            method: str = "blob") -> None:
+        """Centre camera `name` on the round mark nearest its image centre (the centre run of
+        calibration and of the job's board marks). Raises HTTPException."""
         camera = cam(name)
         A = require_cal(name)
         mark = (0.3, 4.0)
-        if req.mark_mm is not None:
-            if len(req.mark_mm) != 2 or not 0.1 <= req.mark_mm[0] < req.mark_mm[1] <= 12.0:
+        if mark_mm is not None:
+            if len(mark_mm) != 2 or not 0.1 <= mark_mm[0] < mark_mm[1] <= 12.0:
                 raise HTTPException(400, "mark_mm must be [min, max] diameters between 0.1 and 12 mm")
-            mark = (float(req.mark_mm[0]), float(req.mark_mm[1]))
-        if req.method not in ("blob", "circle", "auto"):
+            mark = (float(mark_mm[0]), float(mark_mm[1]))
+        if method not in ("blob", "circle", "auto"):
             raise HTTPException(400, "method must be blob, circle or auto")
         resolution = machine.cfg.motion.step_quantum / machine.cfg.steps.x
         async with exclusive():
             await _run(cal_math.centre_on_blob(
-                machine, camera, A, polarity=req.polarity, resolution_mm=resolution, mark_mm=mark,
-                max_move_mm=max(2.0, mark[1]), method=req.method))
+                machine, camera, A, polarity=polarity, resolution_mm=resolution, mark_mm=mark,
+                max_move_mm=max(2.0, mark[1]), method=method))
+
+    app.state.centre_camera = centre_camera
+
+    @app.post("/api/calibrate/{name}/centre")
+    async def calibrate_centre(name: str, req: CentreReq):
+        await centre_camera(name, polarity=req.polarity, mark_mm=req.mark_mm, method=req.method)
         return {"position": machine.position()}
 
     @app.post("/api/calibrate/nozzle-offset/camera")

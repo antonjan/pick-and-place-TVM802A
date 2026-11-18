@@ -576,58 +576,31 @@
     <div class="actions">
       <button class="btn" id="job-save-board">Save board</button>
     </div>
-    <h3>Reference points</h3>
-    <div class="ref-points">
-      <div class="ref-row" data-refpt="a">
-        <strong>Point 1 · origin</strong>
-        <div class="ref-cols">
-          <fieldset class="ref-set">
-            <legend>Board position (KiCad mm)</legend>
-            <label>Part <select class="ref-part" aria-label="Point 1 · origin part"></select></label>
-            <label>X <input class="num ref-x" type="number" step="any" placeholder="board X"></label>
-            <label>Y <input class="num ref-y" type="number" step="any" placeholder="board Y"></label>
-          </fieldset>
-          <fieldset class="ref-set">
-            <legend>Machine position (mm)</legend>
-            <label>X <input class="num ref-mx" type="number" step="any" placeholder="capture"></label>
-            <label>Y <input class="num ref-my" type="number" step="any" placeholder="capture"></label>
-            <button class="btn ref-record" type="button"><svg class="icon"><use href="#i-crosshair"/></svg>Capture camera</button>
-            <button class="btn btn-ghost ref-centre" type="button" title="Centre the camera on the round mark nearest the crosshair (hole, pad, fiducial), then capture"><svg class="icon"><use href="#i-scan"/></svg>Centre on mark</button>
-          </fieldset>
-        </div>
-      </div>
-      <div class="ref-row" data-refpt="b">
-        <strong>Point 2</strong>
-        <div class="ref-cols">
-          <fieldset class="ref-set">
-            <legend>Board position (KiCad mm)</legend>
-            <label>Part <select class="ref-part" aria-label="Point 2 part"></select></label>
-            <label>X <input class="num ref-x" type="number" step="any" placeholder="board X"></label>
-            <label>Y <input class="num ref-y" type="number" step="any" placeholder="board Y"></label>
-          </fieldset>
-          <fieldset class="ref-set">
-            <legend>Machine position (mm)</legend>
-            <label>X <input class="num ref-mx" type="number" step="any" placeholder="capture"></label>
-            <label>Y <input class="num ref-my" type="number" step="any" placeholder="capture"></label>
-            <button class="btn ref-record" type="button"><svg class="icon"><use href="#i-crosshair"/></svg>Capture camera</button>
-            <button class="btn btn-ghost ref-centre" type="button" title="Centre the camera on the round mark nearest the crosshair (hole, pad, fiducial), then capture"><svg class="icon"><use href="#i-scan"/></svg>Centre on mark</button>
-          </fieldset>
-        </div>
-      </div>
-    </div>
+    <h3>Board marks</h3>
     <div class="actions">
-      <label class="inline">Board <select id="ref-board"></select></label>
       <label class="inline" title="Size of the round mark Centre on mark looks for">Mark Ø <select id="ref-mark-size">
         <option value="0.3,4">0.3–4 mm (pads, vias, fiducials)</option>
         <option value="0.3,1.5">0.3–1.5 mm (small)</option>
         <option value="1,4">1–4 mm (fiducials, small holes)</option>
         <option value="3,8">3–8 mm (mounting holes)</option>
       </select></label>
-      <button class="btn btn-primary" id="ref-apply">Set board from points 1 and 2</button>
+      <button class="btn" id="marks-copy" title="Copy board 1's two mark positions in the file to every board. The measurements stay.">Copy board 1 marks to all boards</button>
+      <button class="btn btn-ghost btn-destructive" id="marks-clear">Clear measurements</button>
     </div>
-    <p class="value" id="ref-result" hidden></p>
-    <p class="value" id="ref-extent" hidden></p>
-    <p class="hint">Each point needs its position in the <strong>position file's coordinates</strong> and its machine position. Easiest: pick a part for each point (its file position fills in), put the camera on that part's centre and press Capture camera. For a board corner or hole, enter its file X/Y. KiCad shows Y positive downwards but the file stores it negated, and the file's 0, 0 is the page origin unless it was exported with the drill/place file origin. Use two points far apart. Home the machine first.</p>
+    <div class="table-wrap">
+      <table class="feeders marks">
+        <thead>
+          <tr><th rowspan="2">Board</th><th colspan="6">Mark 1</th><th colspan="6">Mark 2</th><th rowspan="2">Result</th></tr>
+          <tr>
+            <th>Part</th><th>Board X</th><th>Board Y</th><th>Machine X</th><th>Machine Y</th><th></th>
+            <th>Part</th><th>Board X</th><th>Board Y</th><th>Machine X</th><th>Machine Y</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="mark-rows"></tbody>
+      </table>
+    </div>
+    <p class="value" id="marks-extent" hidden></p>
+    <p class="hint">Each board is placed from its own two marks, like the vendor software. For each mark, enter its position in the <strong>position file's coordinates</strong> (or pick a part to fill it in), put the camera on the mark and press Capture. Centre first finds the round mark nearest the crosshair (size set by Mark Ø), then captures. Machine X and Y can also be typed. KiCad shows Y positive downwards but the file stores it negated, and the file's 0, 0 is the page origin unless it was exported with the drill/place file origin. Use two marks far apart. Home the machine first. A board without marks yet follows the first measured board through the panel grid.</p>
   </section>
 
   <section class="card" id="job-fiducials">

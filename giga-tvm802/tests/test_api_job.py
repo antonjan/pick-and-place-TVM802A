@@ -792,6 +792,145 @@ def test_align_two_points_stores_scale(tmp_path):
         assert job_state(e.client)["job"]["scale"] == pytest.approx(out["job"]["scale"], abs=1e-12)
 
 
+def two_board_truth(board, x, y):
+    """Where board point (x, y) of panel board `board` really is (world mm). Board 2 sits 51.3 mm
+    along board 1's axis (the grid says 50) and is rotated 0.8 deg more than board 1."""
+    rot, off = 1.2, (0.0, 0.0)
+    if board == 1:
+        rot = 2.0
+        off = (51.3 * math.cos(math.radians(1.2)), 51.3 * math.sin(math.radians(1.2)))
+    t = math.radians(rot)
+    return (147.5 + off[0] + math.cos(t) * x - math.sin(t) * y,
+            152.25 + off[1] + math.sin(t) * x + math.cos(t) * y)
+
+
+def panel_world(job, board, x, y):
+    """World mm of a board point with the panel formula (job origin, rotation, scale and the grid)."""
+    inst = job["boards"][board]
+    a = math.radians(inst["rotation"])
+    px = (math.cos(a) * x - math.sin(a) * y + inst["x"]) * job["scale"]
+    py = (math.sin(a) * x + math.cos(a) * y + inst["y"]) * job["scale"]
+    r = math.radians(job["rotation"])
+    return (job["origin"][0] + math.cos(r) * px - math.sin(r) * py,
+            job["origin"][1] + math.sin(r) * px + math.cos(r) * py)
+
+
+MARKS = ((5.0, 4.0), (40.0, 30.0))  # the same two board points, measured on every board
+
+
+def measure_two_points(c, board, shift=(0.0, 0.0)):
+    """Post the two marks of `board` as the camera would see them (true positions plus shift)."""
+    pts = []
+    for p in MARKS:
+        w = two_board_truth(board, *p)
+        pts.append({"ref": None, "x": p[0], "y": p[1], "world_x": w[0] + shift[0], "world_y": w[1] + shift[1]})
+    return c.post("/api/job/align/two-points", json={"board": board, "a": pts[0], "b": pts[1]})
+
+
+def set_two_board_panel(c):
+    """The demo job as a 2-board panel (grid 50 mm, not the true spacing), homed."""
+    assert c.post("/api/job/import", json={"name": "Demo", "filename": "demo.pos", "text": DEMO.read_text()}).status_code == 200
+    assert c.post("/api/job/panel/grid", json={"rows": 1, "cols": 2, "step_x": 50.0, "step_y": 0.0}).status_code == 200
+    assert c.post("/api/home").status_code == 200
+
+
+def test_two_points_on_each_board_of_a_panel_give_each_board_its_own_fit(tmp_path):
+    """The true boards differ from the grid. Measuring the same two marks on each board gives
+    each board its own fit, and every part lands on its true position."""
+    with start_app(tmp_path) as e:
+        c = e.client
+        set_two_board_panel(c)
+        r = measure_two_points(c, 0)
+        assert r.status_code == 200, r.text
+        assert r.json()["alignment"]["board"] == 0 and r.json()["alignment"]["boards_aligned"] == [0]
+        assert set(r.json()["job"]["board_fits"]) == {"0"}
+
+        r = measure_two_points(c, 1)
+        assert r.status_code == 200, r.text
+        assert r.json()["alignment"]["board"] == 1 and r.json()["alignment"]["boards_aligned"] == [0, 1]
+        s = r.json()
+        job = s["job"]
+        assert set(job["board_fits"]) == {"0", "1"}  # measuring board 2 kept board 1's fit
+        origin1 = two_board_truth(1, 0.0, 0.0)
+        fit1 = job["board_fits"]["1"]
+        assert fit1[0] == pytest.approx(origin1[0], abs=1e-4) and fit1[1] == pytest.approx(origin1[1], abs=1e-4)
+        assert fit1[2] == pytest.approx(2.0, abs=1e-4) and fit1[3] == pytest.approx(1.0, abs=1e-6)
+        assert job["fit"] is None
+        # the panel transform follows the lowest measured board (board 1)
+        assert job["origin"][0] == pytest.approx(two_board_truth(0, 0.0, 0.0)[0], abs=1e-4)
+        assert job["origin"][1] == pytest.approx(two_board_truth(0, 0.0, 0.0)[1], abs=1e-4)
+        assert job["rotation"] == pytest.approx(1.2, abs=1e-4)
+
+        parts = {p["ref"]: p for p in job["parts"]}
+        placed = [i for i in s["plan"] if i["x"] is not None]
+        assert {i["board"] for i in placed} == {0, 1}
+        for item in placed:
+            p = parts[item["ref"]]
+            want = two_board_truth(item["board"], p["x"], p["y"])
+            assert abs(item["x"] - want[0]) < 0.01 and abs(item["y"] - want[1]) < 0.01, item
+
+
+def test_board_without_its_own_points_follows_the_first_measured_board(tmp_path):
+    with start_app(tmp_path) as e:
+        c = e.client
+        set_two_board_panel(c)
+        assert measure_two_points(c, 0).status_code == 200
+        s = job_state(c)
+        job = s["job"]
+        assert set(job["board_fits"]) == {"0"}
+        for item in s["plan"]:
+            if item["x"] is None:
+                continue
+            p = next(p for p in job["parts"] if p["ref"] == item["ref"])
+            want = panel_world(job, item["board"], p["x"], p["y"])
+            assert abs(item["x"] - want[0]) < 0.01 and abs(item["y"] - want[1]) < 0.01, item
+        # board 2 is not at its true place yet: its grid offset and rotation are off
+        r1 = next(p for p in job["parts"] if p["ref"] == "R1")
+        b2 = next(i for i in s["plan"] if i["board"] == 1 and i["ref"] == "R1")
+        assert math.dist((b2["x"], b2["y"]), two_board_truth(1, r1["x"], r1["y"])) > 0.5
+
+
+def test_one_board_two_points_keep_no_board_fits(tmp_path):
+    with start_app(tmp_path) as e:
+        c = e.client
+        assert c.post("/api/job/import", json={"name": "Demo", "filename": "demo.pos", "text": DEMO.read_text()}).status_code == 200
+        assert c.post("/api/home").status_code == 200
+        r = measure_two_points(c, 0)
+        assert r.status_code == 200, r.text
+        assert r.json()["alignment"]["board"] == 0 and r.json()["alignment"]["boards_aligned"] == []
+        job = r.json()["job"]
+        assert job["board_fits"] == {}
+        assert job["origin"][0] == pytest.approx(two_board_truth(0, 0.0, 0.0)[0], abs=1e-4)
+        assert job["origin"][1] == pytest.approx(two_board_truth(0, 0.0, 0.0)[1], abs=1e-4)
+        assert job["rotation"] == pytest.approx(1.2, abs=1e-4)
+
+
+def test_refused_board_measurement_restores_every_fit(tmp_path):
+    """Board 2's points put its parts off the machine: refused, and nothing changes."""
+    with start_app(tmp_path) as e:
+        c = e.client
+        set_two_board_panel(c)
+        assert measure_two_points(c, 0).status_code == 200
+        before = job_state(c)["job"]
+        r = measure_two_points(c, 1, shift=(300.0, 0.0))
+        assert r.status_code == 400 and "outside the machine" in r.json()["detail"]
+        after = job_state(c)["job"]
+        for key in ("board_fits", "origin", "rotation", "scale", "fit", "references", "reference_board"):
+            assert after[key] == before[key], key
+
+
+def test_panel_grid_change_clears_board_fits(tmp_path):
+    with start_app(tmp_path) as e:
+        c = e.client
+        set_two_board_panel(c)
+        assert measure_two_points(c, 0).status_code == 200
+        assert measure_two_points(c, 1).status_code == 200
+        assert set(job_state(c)["job"]["board_fits"]) == {"0", "1"}
+        r = c.post("/api/job/panel/grid", json={"rows": 1, "cols": 2, "step_x": 52.0, "step_y": 0.0})
+        assert r.status_code == 200, r.text
+        assert r.json()["job"]["board_fits"] == {} and r.json()["job"]["fit"] is None
+
+
 def test_part_height_pcb_thickness_and_bed_depth_place_depth(tmp_path):
     with start_app(tmp_path) as e:
         c = e.client
@@ -915,3 +1054,150 @@ def test_job_file_export_and_import_keeps_edits(tmp_path):
             r = c.post("/api/job/import-file", json={"text": bad})
             assert r.status_code == 400, bad[:40]
             assert r.json()["detail"]
+
+
+# ---------------------------------------------------------------- board marks
+
+def measured_marks(c, board):
+    """Both marks of `board` at their true machine positions (exact values, no camera)."""
+    body = {name: {"mx": two_board_truth(board, *p)[0], "my": two_board_truth(board, *p)[1]}
+            for name, p in zip(("m1", "m2"), MARKS)}
+    return c.put(f"/api/job/marks/{board}", json=body)
+
+
+def design_marks(c):
+    """Board 1's design marks, then copied to every board."""
+    r = c.put("/api/job/marks/0", json={"m1": {"x": 5.0, "y": 4.0, "ref": "R1"}, "m2": {"x": 40.0, "y": 30.0}})
+    assert r.status_code == 200, r.text
+    assert c.post("/api/job/marks/design-to-all").status_code == 200
+
+
+def assert_plan_on_truth(s, boards=(0, 1), tol=0.01):
+    parts = {p["ref"]: p for p in s["job"]["parts"]}
+    placed = [i for i in s["plan"] if i["x"] is not None and i["board"] in boards]
+    assert {i["board"] for i in placed} == set(boards)
+    for item in placed:
+        p = parts[item["ref"]]
+        want = two_board_truth(item["board"], p["x"], p["y"])
+        assert abs(item["x"] - want[0]) < tol and abs(item["y"] - want[1]) < tol, item
+
+
+def test_each_board_is_placed_from_its_own_two_marks(tmp_path):
+    with start_app(tmp_path) as e:
+        c = e.client
+        set_two_board_panel(c)
+        r = c.put("/api/job/marks/0", json={"m1": {"x": 5.0, "y": 4.0, "ref": "R1"}, "m2": {"x": 40.0, "y": 30.0}})
+        assert r.status_code == 200, r.text
+        job = r.json()["job"]
+        assert job["board_marks"][0]["m1"] == {"x": 5.0, "y": 4.0, "mx": None, "my": None, "ref": "R1"}
+        assert job["mark_results"][0]["ok"] is False and job["mark_results"][0]["error"] is None  # incomplete
+        assert c.post("/api/job/marks/design-to-all").status_code == 200
+        assert [b["m2"]["x"] for b in job_state(c)["job"]["board_marks"]] == [40.0, 40.0]
+
+        # bad requests are refused
+        assert c.put("/api/job/marks/9", json={"m1": {"x": 1.0}}).status_code == 400
+        assert c.put("/api/job/marks/0", json={"m1": {"x": "abc"}}).status_code == 400
+        assert c.put("/api/job/marks/0", json={"m1": {"ref": 5}}).status_code == 400
+
+        assert measured_marks(c, 0).status_code == 200
+        s = measured_marks(c, 1).json()
+        job = s["job"]
+        assert [m["ok"] for m in job["mark_results"]] == [True, True], job["mark_results"]
+        assert set(job["mark_fits"]) == {"0", "1"}
+        assert job["mark_results"][1]["rotation"] == pytest.approx(2.0, abs=1e-4)
+        assert job["mark_results"][0]["distance_error"] == pytest.approx(0.0, abs=1e-3)
+        # each board is placed from its own marks; the panel follows the lowest measured board
+        assert job["rotation"] == pytest.approx(1.2, abs=1e-4)
+        assert_plan_on_truth(s)
+
+        # a mark's measured position can be typed and cleared
+        r = c.put("/api/job/marks/1", json={"m2": {"mx": None, "my": None}})
+        assert r.status_code == 200, r.text
+        assert r.json()["job"]["board_marks"][1]["m2"]["mx"] is None
+        assert 1 not in {int(k) for k in r.json()["job"]["mark_fits"]}
+        assert measured_marks(c, 1).status_code == 200  # back again
+
+
+def test_capture_records_the_head_position_and_refits_the_board(tmp_path):
+    with start_app(tmp_path) as e:
+        c = e.client
+        set_two_board_panel(c)
+        design_marks(c)
+        for board in (0, 1):
+            for name, p in zip(("m1", "m2"), MARKS):
+                w = two_board_truth(board, *p)
+                assert c.post("/api/move", json={"x": w[0], "y": w[1]}).status_code == 200
+                r = c.post(f"/api/job/marks/{board}/{name}/capture", json={})
+                assert r.status_code == 200, r.text
+                mark = r.json()["job"]["board_marks"][board][name]
+                assert math.dist((mark["mx"], mark["my"]), w) < POS_TOL  # the head's position, in steps
+        s = job_state(c)
+        assert set(s["job"]["mark_fits"]) == {"0", "1"}
+        # the head moves in 0.0305 mm steps, so the captured marks are a little off the true ones
+        assert_plan_on_truth(s, tol=0.05)
+
+        assert c.post("/api/job/marks/0/m3/capture", json={}).status_code == 400
+        assert c.post("/api/job/marks/9/m1/capture", json={}).status_code == 400
+        # no down camera in this app: centring is refused, nothing is recorded
+        assert c.post("/api/job/marks/0/m1/capture", json={"centre": True}).status_code == 409
+
+
+def test_board_save_panel_and_fiducial_edits_keep_the_mark_fits(tmp_path):
+    with start_app(tmp_path) as e:
+        c = e.client
+        set_two_board_panel(c)
+        design_marks(c)
+        assert measured_marks(c, 0).status_code == 200
+        fits = measured_marks(c, 1).json()["job"]["mark_fits"]
+        assert set(fits) == {"0", "1"}
+
+        assert c.put("/api/job/board", json={"origin": [147.5, 152.25], "rotation": 1.2}).status_code == 200
+        assert job_state(c)["job"]["mark_fits"] == fits
+        two = [{"x": 0.0, "y": 0.0, "rotation": 0.0, "skip": False}, {"x": 50.0, "y": 0.0, "rotation": 0.0, "skip": False}]
+        assert c.put("/api/job/panel", json={"boards": two}).status_code == 200
+        assert job_state(c)["job"]["mark_fits"] == fits
+        r = c.put("/api/job/fiducials", json={"mode": "off", "diameter": 1.0, "fiducials": []})
+        assert r.status_code == 200, r.text
+        assert r.json()["job"]["mark_fits"] == fits
+
+        # growing the grid to three boards keeps boards 1 and 2 measured; board 3 has no marks yet
+        r = c.post("/api/job/panel/grid", json={"rows": 1, "cols": 3, "step_x": 50.0, "step_y": 0.0})
+        assert r.status_code == 200, r.text
+        s = r.json()
+        job = s["job"]
+        assert len(job["boards"]) == 3 and len(job["board_marks"]) == 3
+        assert set(job["mark_fits"]) == {"0", "1"}
+        assert job["board_marks"][0]["m1"]["mx"] is not None
+        assert job["board_marks"][2]["m1"] == {"x": 5.0, "y": 4.0, "mx": None, "my": None, "ref": "R1"}
+        assert [m["ok"] for m in job["mark_results"]] == [True, True, False]
+        assert_plan_on_truth(s)
+        # the new board (index 2) follows the panel, which is set from the lowest measured board (index 0)
+        for item in s["plan"]:
+            if item["board"] != 2 or item["x"] is None:
+                continue
+            p = next(p for p in job["parts"] if p["ref"] == item["ref"])
+            want = panel_world(job, 2, p["x"], p["y"])
+            assert abs(item["x"] - want[0]) < 0.01 and abs(item["y"] - want[1]) < 0.01, item
+
+        # clearing removes the measurements and fits; the design marks stay
+        r = c.post("/api/job/marks/clear")
+        assert r.status_code == 200, r.text
+        job = r.json()["job"]
+        assert job["mark_fits"] == {} and all(m["mx"] is None for b in job["board_marks"] for m in (b["m1"], b["m2"]))
+        assert job["board_marks"][1]["m2"]["x"] == 40.0
+        assert [m["ok"] for m in job["mark_results"]] == [False, False, False]
+
+
+def test_copy_design_keeps_measurements_and_refits(tmp_path):
+    with start_app(tmp_path) as e:
+        c = e.client
+        set_two_board_panel(c)
+        design_marks(c)
+        assert measured_marks(c, 1).status_code == 200
+        # board 2's own design marks are changed, then copied back from board 1
+        assert c.put("/api/job/marks/1", json={"m1": {"x": 9.0}}).status_code == 200
+        r = c.post("/api/job/marks/design-to-all")
+        assert r.status_code == 200, r.text
+        job = r.json()["job"]
+        assert job["board_marks"][1]["m1"]["x"] == 5.0 and job["board_marks"][1]["m1"]["mx"] is not None
+        assert job["mark_results"][1]["ok"] is True  # the measurements still make a good fit

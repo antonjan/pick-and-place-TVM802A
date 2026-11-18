@@ -13,6 +13,7 @@ import math
 import os
 import re
 import tempfile
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -91,6 +92,13 @@ class Job:
         # [{"ref": part ref or None, "x": board mm, "y": board mm}, ...] (A then B), on board `reference_board`
     reference_board: int = 0
     pcb_thickness: float = 1.6        # mm, used with the head's bed depth to compute place depths (0 < t <= 10)
+    board_marks: list[dict] = field(default_factory=list)
+        # one entry per board (see sync_board_marks): {"m1": mark, "m2": mark, "error": str | None}, where
+        # mark = {"x", "y": the mark in the position file's board mm, "mx", "my": measured machine mm
+        # (None until captured), "ref": part reference it was taken from or None}
+    mark_fits: dict[int, list[float]] = field(default_factory=dict)
+        # board index -> [origin_x, origin_y, rotation_deg, scale] fitted from that board's two marks
+        # (board coords -> world). Not cleared by clear_fit: that forgets the fiducial measurement only.
 
 
 def placement_key(board: int, ref: str) -> str:
@@ -115,7 +123,7 @@ def job_from_pos(name: str, source: str, parts: list[PosPart]) -> Job:
     fiducial mode is "panel" when at least one is found.
     """
     fiducials = [Fiducial(name=p.ref, x=p.x, y=p.y) for p in parts if p.side == "top" and is_fiducial(p)]
-    return Job(
+    job = Job(
         name=name,
         source=source,
         parts=[
@@ -135,6 +143,8 @@ def job_from_pos(name: str, source: str, parts: list[PosPart]) -> Job:
         fiducials=fiducials,
         fiducial_mode="panel" if fiducials else "off",
     )
+    sync_board_marks(job)
+    return job
 
 
 def _rot(a_deg: float) -> tuple[float, float]:
@@ -168,17 +178,24 @@ def check_scale(scale: float) -> None:
         raise ValueError(f"scale must be within {1.0 - SCALE_LIMIT:g}..{1.0 + SCALE_LIMIT:g}, got {scale:g}")
 
 
+def _board_fit(job: Job, board: int) -> list[float] | None:
+    """The board's own fit: the fiducial one (`board_fits`), else the one from its marks (`mark_fits`)."""
+    fit = job.board_fits.get(board)
+    return fit if fit is not None else job.mark_fits.get(board)
+
+
 def to_world(job: Job, board: int, x: float, y: float) -> tuple[float, float]:
     """Board point (mm) to world mm.
 
-    A board with a board fit (`job.board_fits`) maps directly from its board coordinates,
-    with the fit's scale (1 when the fit has none). Otherwise the panel origin, rotation and
-    `job.scale` are used. ValueError if neither is set.
+    A board with its own fit maps directly from its board coordinates, with the fit's scale
+    (1 when the fit has none): the fiducial fit (`job.board_fits`) first, else the fit from
+    its two marks (`job.mark_fits`). Otherwise the panel origin, rotation and `job.scale`
+    are used. ValueError if neither is set.
 
     The scale multiplies the whole panel point, board offset included, before the job
     rotation: the offsets are measured in the same units as the board itself.
     """
-    fit = job.board_fits.get(board)
+    fit = _board_fit(job, board)
     if fit is not None:
         ox, oy, r = fit[0], fit[1], fit[2]
         s = fit[3] if len(fit) > 3 else 1.0
@@ -198,7 +215,7 @@ def to_world(job: Job, board: int, x: float, y: float) -> tuple[float, float]:
 
 def world_rotation(job: Job, board: int, part_rotation: float) -> float:
     """World rotation (deg) of a part, in (-180, 180]."""
-    fit = job.board_fits.get(board)
+    fit = _board_fit(job, board)
     if fit is not None:
         return _wrap(part_rotation + fit[2])
     return _wrap(part_rotation + job.boards[board].rotation + job.rotation)
@@ -295,12 +312,13 @@ def check_distances(result: dict[str, Any]) -> None:
 
 
 def placements_outside(job: Job, x_range: tuple[float, float], y_range: tuple[float, float],
-                       margin: float = 0.0) -> list[tuple[str, float, float]]:
+                       margin: float = 0.0, boards: Iterable[int] | None = None) -> list[tuple[str, float, float]]:
     """(ref, world x, world y) of every top-side part on a non-skipped board that lands
-    outside the machine's X/Y range with the job's current origin and rotation."""
+    outside the machine's X/Y range with the job's current origin and rotation.
+    `boards` limits the check to those board indexes (default: all)."""
     out = []
     for b, board in enumerate(job.boards):
-        if board.skip:
+        if board.skip or (boards is not None and b not in boards):
             continue
         for p in job.parts:
             if p.side == "bottom":
@@ -335,6 +353,163 @@ def fit_rotation(job: Job, board_xy: tuple[float, float], world_xy: tuple[float,
         raise ValueError("points must be at least 1 mm from the origin")
     ang = math.degrees(math.atan2(vy, vx)) - math.degrees(math.atan2(by, bx))
     return _wrap(ang)
+
+
+def panel_from_board_fit(job: Job, board: int) -> tuple[tuple[float, float], float, float]:
+    """Panel origin, rotation and scale that make the panel formula reproduce board `board`'s fiducial fit.
+
+    ValueError if the board has no fit in `board_fits`.
+    """
+    fit = job.board_fits.get(board)
+    if fit is None:
+        raise ValueError(f"board {board + 1} has no fit")
+    return panel_from_fit(job, board, fit)
+
+
+def panel_from_fit(job: Job, board: int, fit: list[float]) -> tuple[tuple[float, float], float, float]:
+    """Panel origin, rotation and scale that make the panel formula reproduce `fit` for board `board`.
+
+    The fit maps board point p to rot(fit_rot) @ (s p) + t. The panel formula maps it to
+    O + rot(R) @ (s (rot(inst) p + inst_xy)). These are equal when R = fit_rot - inst_rot and
+    O = t - s rot(R) @ inst_xy. Boards without a fit then follow this one through their grid
+    offsets.
+    """
+    inst = job.boards[board]
+    s = fit[3] if len(fit) > 3 else 1.0
+    rotation = _wrap(fit[2] - inst.rotation)
+    rx, ry = _apply_rot(rotation, inst.x, inst.y)
+    return (fit[0] - s * rx, fit[1] - s * ry), rotation, s
+
+
+MARK_COORDS = ("x", "y", "mx", "my")
+
+
+def blank_mark(x: float | None = None, y: float | None = None, ref: str | None = None) -> dict:
+    """One board mark: design X/Y (board mm) and reference, measured machine X/Y not captured yet."""
+    return {"x": x, "y": y, "mx": None, "my": None, "ref": ref}
+
+
+def _new_board_marks(design: dict | None) -> dict:
+    """A board's entry: the given design marks (copied, nothing measured) or blank ones."""
+    marks = design or {"m1": blank_mark(), "m2": blank_mark()}
+    return {"m1": dict(marks["m1"]), "m2": dict(marks["m2"]), "error": None}
+
+
+def _design_marks(job: Job) -> dict | None:
+    """{"m1", "m2"} design marks from the two-point references (before board marks existed), or None."""
+    if not job.references:
+        return None
+    marks = {}
+    for name, r in zip(("m1", "m2"), job.references[:2]):
+        marks[name] = blank_mark(float(r["x"]), float(r["y"]), r.get("ref"))
+    marks.setdefault("m1", blank_mark())
+    marks.setdefault("m2", blank_mark())
+    return marks
+
+
+def sync_board_marks(job: Job) -> None:
+    """Make `job.board_marks` one entry per board, and drop mark fits of boards that are gone.
+
+    A job with no board marks yet takes the two-point references as every board's design
+    marks (the older job format). A new board gets the design X/Y of the first board that
+    has one, with no measurement. Boards past the end of the panel lose their entries and fits.
+    """
+    n = len(job.boards)
+    if not job.board_marks:
+        design = _design_marks(job)
+        job.board_marks = [_new_board_marks(design) for _ in range(n)]
+    source = next((e for e in job.board_marks if e["m1"]["x"] is not None or e["m2"]["x"] is not None), None)
+    template = None
+    if source is not None:
+        template = {name: blank_mark(source[name]["x"], source[name]["y"], source[name]["ref"])
+                    for name in ("m1", "m2")}
+    while len(job.board_marks) < n:
+        job.board_marks.append(_new_board_marks(template))
+    del job.board_marks[n:]
+    for board in [k for k in job.mark_fits if k >= n]:
+        del job.mark_fits[board]
+
+
+def _marks_fit(job: Job, board: int) -> dict[str, Any] | None:
+    """fit_two_points for the two marks of `board` (board mm to measured world mm).
+
+    None while a mark is incomplete. ValueError with the reason when the marks can't give a fit.
+    """
+    entry = job.board_marks[board]
+    m1, m2 = entry["m1"], entry["m2"]
+    if any(m[k] is None for m in (m1, m2) for k in MARK_COORDS):
+        return None
+    check_reference_point(job, "Mark 1", m1["x"], m1["y"])
+    check_reference_point(job, "Mark 2", m2["x"], m2["y"])
+    result = fit_two_points((m1["x"], m1["y"]), (m1["mx"], m1["my"]), (m2["x"], m2["y"]), (m2["mx"], m2["my"]))
+    check_distances(result)
+    check_scale(result["scale"])
+    return result
+
+
+def _sync_panel_to_marks(job: Job, fallback: tuple) -> None:
+    """Panel origin, rotation and scale from the lowest-index board with a mark fit.
+
+    Without any mark fit the panel is set back to `fallback` (origin, rotation, scale).
+    """
+    if not job.mark_fits:
+        job.origin, job.rotation, job.scale = fallback
+        return
+    first = min(job.mark_fits)
+    (ox, oy), rotation, scale = panel_from_fit(job, first, job.mark_fits[first])
+    job.origin, job.rotation, job.scale = (ox, oy), rotation, scale
+
+
+def refit_board(job: Job, board: int, x_range: tuple[float, float], y_range: tuple[float, float]) -> str | None:
+    """Recompute the mark fit of `board` from its two marks, and store the result on the board.
+
+    Returns the error message, or None when the board has a fit or its marks are incomplete.
+    On an error the fit is removed but the measurements are kept, so they can be seen and
+    captured again. The fit is only kept if the parts of this board, and of the boards that
+    follow the panel, stay inside the machine range.
+    """
+    fallback = (job.origin, job.rotation, job.scale)
+    job.mark_fits.pop(board, None)
+    error: str | None = None
+    try:
+        result = _marks_fit(job, board)
+    except ValueError as exc:
+        result, error = None, str(exc)
+    if result is not None:
+        job.mark_fits[board] = [float(result["origin"][0]), float(result["origin"][1]),
+                                float(result["rotation"]), float(result["scale"])]
+        _sync_panel_to_marks(job, fallback)
+        followers = [k for k in range(len(job.boards))
+                     if k == board or (k not in job.mark_fits and k not in job.board_fits)]
+        outside = placements_outside(job, x_range, y_range, boards=followers)
+        if outside:
+            job.mark_fits.pop(board, None)
+            first = ", ".join(f"{r} at X {x:.1f}, Y {y:.1f}" for r, x, y in outside[:3])
+            error = (f"with these marks {len(outside)} part(s) would land outside the machine ({first}). "
+                     "Check both marks' board X/Y and their captures.")
+    _sync_panel_to_marks(job, fallback)
+    job.board_marks[board]["error"] = error
+    return error
+
+
+def mark_results(job: Job) -> list[dict]:
+    """Per board: whether its mark fit is good, the error if not, and the fit's rotation, scale and distance error."""
+    out = []
+    for board, entry in enumerate(job.board_marks):
+        error = entry.get("error")
+        try:
+            res = _marks_fit(job, board)
+        except ValueError as exc:
+            res, error = None, error or str(exc)
+        out.append({
+            "board": board,
+            "ok": res is not None and error is None and board in job.mark_fits,
+            "error": error,
+            "rotation": None if res is None else float(res["rotation"]),
+            "scale": None if res is None else float(res["scale"]),
+            "distance_error": None if res is None else float(res["distance_error"]),
+        })
+    return out
 
 
 def norm(s: str) -> str:
@@ -546,7 +721,17 @@ def _job_to_dict(job: Job) -> dict[str, Any]:
         "references": [dict(r) for r in job.references],
         "reference_board": int(job.reference_board),
         "pcb_thickness": float(job.pcb_thickness),
+        "board_marks": [_board_marks_plain(e) for e in job.board_marks],
+        "mark_fits": {int(k): [float(v) for v in vals] for k, vals in job.mark_fits.items()},
     }
+
+
+def _board_marks_plain(entry: dict) -> dict:
+    def mark(m: dict) -> dict:
+        out = {k: None if m[k] is None else float(m[k]) for k in MARK_COORDS}
+        out["ref"] = m["ref"]
+        return out
+    return {"m1": mark(entry["m1"]), "m2": mark(entry["m2"]), "error": entry.get("error")}
 
 
 def _fiducial_from(data: Any, i: int) -> Fiducial:
@@ -557,18 +742,18 @@ def _fiducial_from(data: Any, i: int) -> Fiducial:
         raise ValueError(f"fiducial {i}: x and y must be numbers") from exc
 
 
-def _board_fits_from(data: Any) -> dict[int, list[float]]:
+def _board_fits_from(data: Any, name: str = "board_fits") -> dict[int, list[float]]:
     """Board fits as stored: [x, y, rotation] (older files) or [x, y, rotation, scale]."""
     raw = data or {}
     if not isinstance(raw, dict):
-        raise ValueError("job board_fits must be a mapping")
+        raise ValueError(f"job {name} must be a mapping")
     out: dict[int, list[float]] = {}
     for key, vals in raw.items():
         try:
             index = int(key)
         except (TypeError, ValueError) as exc:
-            raise ValueError(f"board_fits key {key!r} is not a board index") from exc
-        what = f"board_fits[{key!r}] must be [x, y, rotation] or [x, y, rotation, scale]"
+            raise ValueError(f"{name} key {key!r} is not a board index") from exc
+        what = f"{name}[{key!r}] must be [x, y, rotation] or [x, y, rotation, scale]"
         try:
             nums = [float(v) for v in vals]
         except (TypeError, ValueError) as exc:
@@ -578,6 +763,38 @@ def _board_fits_from(data: Any) -> dict[int, list[float]]:
         if len(nums) == 4:
             check_scale(nums[3])
         out[index] = nums
+    return out
+
+
+def _mark_from(data: Any, what: str) -> dict:
+    if data is None:
+        return blank_mark()
+    if not isinstance(data, dict):
+        raise ValueError(f"{what} must be a mapping")
+    unknown = set(data) - set(MARK_COORDS) - {"ref"}
+    if unknown:
+        raise ValueError(f"{what}: unknown key(s) {sorted(unknown)}")
+    out: dict[str, Any] = {k: None if data.get(k) is None else _number(data[k], f"{what} {k}") for k in MARK_COORDS}
+    ref = data.get("ref")
+    out["ref"] = None if ref in (None, "") else str(ref)
+    return out
+
+
+def _board_marks_from(data: Any) -> list[dict]:
+    out = []
+    for i, entry in enumerate(data or []):
+        what = f"board_marks {i}"
+        if not isinstance(entry, dict):
+            raise ValueError(f"{what} must be a mapping")
+        unknown = set(entry) - {"m1", "m2", "error"}
+        if unknown:
+            raise ValueError(f"{what}: unknown key(s) {sorted(unknown)}")
+        err = entry.get("error")
+        out.append({
+            "m1": _mark_from(entry.get("m1"), f"{what} m1"),
+            "m2": _mark_from(entry.get("m2"), f"{what} m2"),
+            "error": None if err in (None, "") else str(err),
+        })
     return out
 
 
@@ -652,7 +869,7 @@ def _job_from_dict(data: Any) -> Job:
     if not 0 < pcb_thickness <= PCB_THICKNESS_MAX:
         raise ValueError(f"pcb_thickness must be above 0 and at most {PCB_THICKNESS_MAX:g} mm, got {pcb_thickness!r}")
 
-    return Job(
+    job = Job(
         name=str(data["name"]),
         source=str(data.get("source") or ""),
         parts=parts,
@@ -669,7 +886,11 @@ def _job_from_dict(data: Any) -> Job:
         references=_references_from(data.get("references")),
         reference_board=int(data.get("reference_board") or 0),
         pcb_thickness=pcb_thickness,
+        board_marks=_board_marks_from(data.get("board_marks")),
+        mark_fits=_board_fits_from(data.get("mark_fits"), "mark_fits"),
     )
+    sync_board_marks(job)  # older files: no board marks yet (taken from the references)
+    return job
 
 
 def _number(value: Any, what: str) -> float:
@@ -698,6 +919,7 @@ JOB_FILE_VERSION = 1
 
 def export_job_yaml(job: Job) -> str:
     """The job as a YAML document for download: the same fields as config/job.yaml, under a header."""
+    sync_board_marks(job)  # as JobStore.save does
     return yaml.safe_dump({"format": JOB_FILE_FORMAT, "version": JOB_FILE_VERSION, "job": _job_to_dict(job)},
                           sort_keys=False)
 
@@ -736,6 +958,7 @@ class JobStore:
         return _job_from_dict(data)
 
     def save(self, job: Job) -> None:
+        sync_board_marks(job)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=str(self.path.parent), prefix=self.path.name + ".", suffix=".tmp")
         try:

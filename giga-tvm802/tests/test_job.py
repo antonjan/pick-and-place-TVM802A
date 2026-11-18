@@ -15,17 +15,21 @@ from pnp.job.job import (
     JobPart,
     JobStore,
     PlanItem,
+    blank_mark,
     clear_fit,
     export_job_yaml,
     fit_rotation,
     grid,
     is_fiducial,
     job_from_pos,
+    mark_results,
     match_feeder,
     norm,
     parse_job_yaml,
     placement_key,
     plan,
+    refit_board,
+    sync_board_marks,
     to_world,
     world_rotation,
 )
@@ -524,6 +528,7 @@ def test_job_store_writes_plain_yaml(tmp_path):
         "fiducials", "fiducial_mode", "fiducial_diameter", "fit", "board_fits",
         "references", "reference_board",  # two-point board alignment (2026-11-13)
         "pcb_thickness",  # bed depth place model
+        "board_marks", "mark_fits",  # two marks per board (board marks)
     }
 
 
@@ -1086,3 +1091,152 @@ def test_job_file_round_trip_keeps_every_edit():
 def test_job_file_bad_content_is_refused_with_a_reason(text, match):
     with pytest.raises(ValueError, match=match):
         parse_job_yaml(text)
+
+
+# ---------------------------------------------------------------- board marks
+
+LIMIT_X, LIMIT_Y = (-100.0, 300.0), (-100.0, 300.0)
+
+
+def marked(boards=1) -> Job:
+    """Parts on a 40 x 30 mm board, `boards` copies 50 mm apart in a row, every board with the
+    design marks (5, 4) R1 and (40, 30) on the file's coordinates, nothing measured."""
+    parts = [part("R1", x=5.0, y=4.0), part("U1", x=20.0, y=10.0), part("C1", x=40.0, y=30.0)]
+    job = Job(name="m", parts=parts, boards=grid(1, boards, 50.0, 0.0), origin=(0.0, 0.0), rotation=0.0)
+    sync_board_marks(job)
+    for entry in job.board_marks:
+        entry["m1"] = blank_mark(5.0, 4.0, "R1")
+        entry["m2"] = blank_mark(40.0, 30.0)
+    return job
+
+
+def measure(job, board, origin, rot_deg):
+    """Record both marks of `board` as the camera sees them on a board at `origin` rotated `rot_deg`."""
+    for name, p in (("m1", (5.0, 4.0)), ("m2", (40.0, 30.0))):
+        job.board_marks[board][name]["mx"], job.board_marks[board][name]["my"] = _world(origin, rot_deg, p)
+
+
+def test_to_world_uses_the_fiducial_fit_then_the_mark_fit_then_the_panel():
+    job = Job(name="j", origin=(150.0, 150.0), rotation=0.0, boards=[BoardInstance(), BoardInstance(x=50.0)])
+    assert close_xy(to_world(job, 1, 10.0, 0.0), (210.0, 150.0))  # panel formula
+    job.mark_fits = {1: [100.0, 100.0, 90.0, 1.0]}
+    assert close_xy(to_world(job, 1, 10.0, 0.0), (100.0, 110.0))
+    assert world_rotation(job, 1, 30.0) == pytest.approx(120.0)
+    job.board_fits = {1: [0.0, 0.0, 0.0, 1.0]}  # the fiducial fit wins over the mark fit
+    assert close_xy(to_world(job, 1, 10.0, 0.0), (10.0, 0.0))
+    assert world_rotation(job, 1, 30.0) == pytest.approx(30.0)
+
+
+def test_sync_board_marks_grows_copying_the_design_and_shrinks_with_its_fits():
+    job = marked(boards=1)
+    job.board_marks[0]["m1"]["mx"] = 1.0  # a measurement is not copied to the new boards
+    job.boards = grid(1, 3, 50.0, 0.0)
+    sync_board_marks(job)
+    assert len(job.board_marks) == 3
+    assert job.board_marks[0]["m1"]["mx"] == 1.0
+    for entry in job.board_marks[1:]:
+        assert entry["m1"] == blank_mark(5.0, 4.0, "R1")
+        assert entry["m2"] == blank_mark(40.0, 30.0)
+        assert entry["error"] is None
+    job.mark_fits = {0: [1.0, 2.0, 0.0, 1.0], 2: [3.0, 4.0, 0.0, 1.0]}
+    job.boards = grid(1, 2, 50.0, 0.0)
+    sync_board_marks(job)
+    assert len(job.board_marks) == 2
+    assert job.mark_fits == {0: [1.0, 2.0, 0.0, 1.0]}
+
+
+def test_old_job_file_takes_its_two_point_references_as_the_design_marks(tmp_path):
+    path = tmp_path / "job.yaml"
+    path.write_text("name: old\nboards:\n- x: 0\n  y: 0\n- x: 50\n  y: 0\n"
+                    "references:\n- {ref: R1, x: 5, y: 4}\n- {ref: null, x: 40, y: 30}\n")
+    job = JobStore(path).load()
+    assert len(job.board_marks) == 2
+    for entry in job.board_marks:
+        assert entry["m1"] == blank_mark(5.0, 4.0, "R1")
+        assert entry["m2"] == blank_mark(40.0, 30.0)
+    assert job.mark_fits == {}
+
+
+def test_refit_board_fits_its_two_marks_and_the_panel_follows_it():
+    job = marked(boards=1)
+    measure(job, 0, (147.5, 152.25), 1.2)
+    assert refit_board(job, 0, LIMIT_X, LIMIT_Y) is None
+    assert job.board_marks[0]["error"] is None
+    fit = job.mark_fits[0]
+    assert fit[0] == pytest.approx(147.5, abs=1e-6) and fit[1] == pytest.approx(152.25, abs=1e-6)
+    assert fit[2] == pytest.approx(1.2, abs=1e-6) and fit[3] == pytest.approx(1.0, abs=1e-9)
+    assert close_xy(to_world(job, 0, 20.0, 10.0), _world((147.5, 152.25), 1.2, (20.0, 10.0)), tol=1e-6)
+    assert job.rotation == pytest.approx(1.2, abs=1e-6)
+    assert close_xy(job.origin, (147.5, 152.25), tol=1e-6)
+    assert mark_results(job)[0] == {"board": 0, "ok": True, "error": None, "rotation": pytest.approx(1.2, abs=1e-6),
+                                    "scale": pytest.approx(1.0, abs=1e-9),
+                                    "distance_error": pytest.approx(0.0, abs=1e-9)}
+
+
+def test_panel_follows_the_lowest_measured_board():
+    job = marked(boards=2)
+    measure(job, 1, (198.8, 153.0), 2.0)
+    assert refit_board(job, 1, LIMIT_X, LIMIT_Y) is None
+    assert job.rotation == pytest.approx(2.0, abs=1e-6)  # the only measured board
+    # board 1 has no marks yet: it sits where board 2's fit puts its design position
+    assert close_xy(to_world(job, 0, 5.0, 4.0), _world((198.8, 153.0), 2.0, (5.0 - 50.0, 4.0)), tol=1e-6)
+    measure(job, 0, (147.5, 152.25), 1.2)
+    assert refit_board(job, 0, LIMIT_X, LIMIT_Y) is None
+    assert job.rotation == pytest.approx(1.2, abs=1e-6)  # the lowest measured board now
+    job.board_marks[0]["m2"]["my"] = None  # board 1 is again the lowest with a fit
+    assert refit_board(job, 0, LIMIT_X, LIMIT_Y) is None
+    assert 0 not in job.mark_fits
+    assert job.rotation == pytest.approx(2.0, abs=1e-6)
+
+
+def test_refit_board_refuses_a_distance_mismatch_but_keeps_the_measurements():
+    job = marked(boards=1)
+    measure(job, 0, (147.5, 152.25), 1.2)
+    job.board_marks[0]["m2"]["mx"] += 3.0  # the second mark was captured 3 mm off
+    error = refit_board(job, 0, LIMIT_X, LIMIT_Y)
+    assert error and "wrong feature" in error
+    assert 0 not in job.mark_fits
+    assert job.board_marks[0]["m2"]["mx"] is not None and job.board_marks[0]["error"] == error
+    result = mark_results(job)[0]
+    assert result["ok"] is False and result["error"] == error
+
+
+def test_refit_board_refuses_marks_that_put_parts_off_the_machine():
+    job = marked(boards=1)
+    measure(job, 0, (-500.0, 0.0), 0.0)
+    error = refit_board(job, 0, LIMIT_X, LIMIT_Y)
+    assert error and "outside the machine" in error
+    assert 0 not in job.mark_fits and job.board_marks[0]["m1"]["mx"] is not None
+
+
+def test_incomplete_marks_remove_the_fit_and_report_nothing():
+    job = marked(boards=1)
+    measure(job, 0, (147.5, 152.25), 1.2)
+    assert refit_board(job, 0, LIMIT_X, LIMIT_Y) is None and 0 in job.mark_fits
+    job.board_marks[0]["m2"]["my"] = None
+    assert refit_board(job, 0, LIMIT_X, LIMIT_Y) is None
+    assert 0 not in job.mark_fits and job.board_marks[0]["error"] is None
+    assert mark_results(job)[0] == {"board": 0, "ok": False, "error": None,
+                                    "rotation": None, "scale": None, "distance_error": None}
+
+
+def test_clear_fit_leaves_the_mark_fits_alone():
+    job = Job(name="j", fit={"mode": "panel"}, board_fits={0: [1.0, 2.0, 0.1]},
+              mark_fits={0: [3.0, 4.0, 0.2, 1.0]})
+    clear_fit(job)
+    assert job.fit is None and job.board_fits == {}
+    assert job.mark_fits == {0: [3.0, 4.0, 0.2, 1.0]}
+
+
+def test_board_marks_and_mark_fits_round_trip(tmp_path):
+    job = marked(boards=2)
+    measure(job, 0, (147.5, 152.25), 1.2)
+    refit_board(job, 0, LIMIT_X, LIMIT_Y)
+    job.board_marks[1]["m1"] = blank_mark(5.0, 4.0, "R1")
+    store = JobStore(tmp_path / "job.yaml")
+    store.save(job)
+    again = store.load()
+    assert again == job
+    data = yaml.safe_load((tmp_path / "job.yaml").read_text())
+    assert sorted(data["mark_fits"]) == [0]
+    assert data["board_marks"][0]["m1"]["ref"] == "R1" and data["board_marks"][0]["error"] is None
